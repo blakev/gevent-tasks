@@ -1,8 +1,9 @@
-# gevent-tasks
-Task manager built around the gevent (http://www.gevent.org/) library.
+#! /usr/bin/env python
+# -*- coding: utf-8 -*-
+# >>
+#     gevent-tasks, 2017
+# <<
 
-
-```python
 from gevent.monkey import patch_all
 patch_all()
 
@@ -24,5 +25,3 @@ manager.start_all()
 
 while True:
     sleep(0.25)
-
-```
