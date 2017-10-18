@@ -14,12 +14,16 @@ from gevent.pool import Pool
 
 from gevent_tasks.tasks import Task, TaskPool
 
-
 UNDER_RE = re.compile(r'(_+[\w|\d])', re.I)
+
+__all__ = [
+    'TaskManager'
+]
 
 
 def _convert_fn_name(name):
     # type: (str) -> str
+    """ Converts underscore named functions to CamelCase. """
     name = name[0].upper() + name[1:]
     for c in UNDER_RE.findall(name):
         x = c.strip('_').upper()
@@ -28,6 +32,8 @@ def _convert_fn_name(name):
 
 
 class TaskManager(object):
+    """ Interface for managing tasks and running them in a Gevent Pool. """
+
     def __init__(self, pool=None, logger=None):
         # type: (Pool, Logger) -> self
 
@@ -108,15 +114,18 @@ class TaskManager(object):
     @property
     def pool(self):
         # type: () -> TaskPool
+        """ Reference to the underlying TaskPool instance. """
         return self._pool
 
     @property
     def task_names(self):
         # type: () -> List[str]
+        """ Copy of a list of all the registered task's names. """
         return [t for t in self._tasks.keys()]
 
     def add(self, task, start=False):
         # type: (Task, bool) -> None
+        """ Add a task to the manager and optionally start executing it. """
         if task.name in self._tasks:
             raise KeyError(task.name)
         if task.pool is None:
@@ -127,33 +136,39 @@ class TaskManager(object):
 
     def add_many(self, *tasks, start=False):
         # type: (*Task, bool) -> None
+        """ Add many tasks to the manager. """
         for task in tasks:
             self.add(task, start=start)
 
     def start(self, task_name):
         # type: (str) -> None
+        """ Start a registered task by name. """
         t = self._tasks.get(task_name, None)
         if t:
             t.start()
 
     def start_all(self):
         # type: () -> None
+        """ Start all registered tasks. """
         for task in self.task_names:
             self.start(task)
 
     def stop(self, task_name, force=False):
         # type: (str, bool) -> None
+        """ Stop a registered task by name. """
         t = self._tasks.get(task_name, None)
         if t:
             t.stop(force)
 
     def stop_all(self, force=False):
         # type: (bool) -> None
+        """ Stop all registered tasks. """
         for task in self.task_names:
             self.stop(task, force)
 
     def remove_task(self, task, force=False):
         # type: (Task, bool) -> None
+        """ Unregister a task from the manager by name or instance. """
         if hasattr(task, 'name'):
             name = task.name
         else:
@@ -164,6 +179,7 @@ class TaskManager(object):
 
     def remove_all(self, force=False):
         # type: (bool) -> None
+        """ Unregister all tasks from the manager. """
         for task in self.task_names:
             self.remove_task(task, force)
 
