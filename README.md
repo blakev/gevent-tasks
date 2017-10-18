@@ -53,6 +53,17 @@ while True:
     sleep(0.25)
 ```
 
+Using the [`parse-crontab`](https://github.com/josiahcarlson/parse-crontab)
+ module we're able to define intervals with cron syntax,
+
+```python
+from gevent_tasks import Task, cron
+...
+...
+Task('PrintHi', print_hi, interval=cron('* * * * *'))
+
+```
+
 ### Attribution
 
 This module relies primarily on the [`gevent`](http://www.gevent.org/index.html) 

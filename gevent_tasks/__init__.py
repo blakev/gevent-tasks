@@ -5,15 +5,17 @@
 # <<
 
 __author__ = 'Blake VandeMerwe'
-__version__ = '0.1.1'
+__version__ = '0.1.2'
 __license__ = 'MIT'
 __contact__ = 'blakev@null.net'
 __url__ = 'https://github.com/blakev/gevent-tasks'
 
-from gevent_tasks.manager import Task, TaskManager, TaskPool
+from gevent_tasks.manager import TaskManager
+from gevent_tasks.tasks import *
 
 __all__ = [
     'Task',
     'TaskManager',
-    'TaskPool'
+    'TaskPool',
+    'cron'
 ]

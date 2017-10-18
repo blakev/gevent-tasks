@@ -10,8 +10,16 @@ from numbers import Real
 from logging import getLogger
 
 import gevent
+from crontab import CronTab
 from gevent import Greenlet, Timeout
 from gevent.pool import Pool
+
+__all__ = [
+    'Task',
+    'TaskPool',
+    'Timing',
+    'cron'
+]
 
 
 class TaskPool(Pool):
@@ -59,8 +67,8 @@ class Timing(object):
 
     def __repr__(self):
         return '<Timing(%scount=%d,started=%0.2f,last=%0.4f)>' % (
-            ('name=%s,' % self.name) if self.name else '', self.count,
-            self._first_start, self.last)
+            ('name=%s,' % self.name) if self.name else '',
+            self.count, self.started, self.last)
 
     def log(self, timing):
         # type: (float) -> None
@@ -140,7 +148,20 @@ class Timing(object):
 class Task(object):
     def __init__(self, name, fn, args=None, kwargs=None, timeout=None,
                  interval=None, description=None, logger=None, pool=None):
+        """ A Task represents a unit of work that can take place in the
+            background of a gevent-based application.
 
+            Args:
+                name (str):
+                fn (Callable):
+                args (Tuple[Any]):
+                kwargs (Dict[str, Any]):
+                timeout (float):
+                interval (Union[float, CronTab]):
+                description (str):
+                logger (Logger):
+                pool (TaskPool):
+        """
         if timeout is None:
             timeout = -1
 
@@ -162,9 +183,10 @@ class Task(object):
         self._schedule = False           # type: bool
         self._timeout_secs = timeout     # type: float
         self._timeout_obj = None         # type: Timeout
-        self._interval = interval        # type: float
         self.timing = Timing(self.name)  # type: Timing
         self.pool = pool                 # type: TaskPool
+        # ~~
+        self._interval = self.parse_interval(interval)
 
     def __repr__(self):
         return '<Task(name=%s)>' % self.name
@@ -185,9 +207,28 @@ class Task(object):
         self._running = False
         self.timing.log(duration)
         if self.is_periodic and self._schedule:
-            when = max(0, self._interval - duration)
+            if isinstance(self._interval, CronTab):
+                when = self._interval.next()
+            else:
+                when = max(0, self._interval - duration)
             gevent.spawn_later(when, self.start)
             self.logger.debug('scheduled to run in %0.2f', when)
+
+    @classmethod
+    def parse_interval(cls, i):
+        if i is None:
+            # no interval
+            return None
+        elif isinstance(i, Real):
+            # seconds interval
+            return float(i)
+        elif isinstance(i, str):
+            # coerce to CronTab
+            return CronTab(i)
+        elif isinstance(i, CronTab):
+            return i
+        else:
+            raise ValueError('cannot use interval of type %s' % type(i))
 
     def start(self):
         # type: () -> None
@@ -236,14 +277,13 @@ class Task(object):
     @property
     def is_running(self):
         # type: () -> bool
-        if self._interval:
-            return self.timing.started + self._interval > time.time()
         return self._running  # guess
 
     @property
     def is_periodic(self):
         # type: () -> bool
-        return isinstance(self._interval, Real)
+        return isinstance(self._interval, (CronTab, Real))
 
 
-
+# alias
+cron = CronTab
