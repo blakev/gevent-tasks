@@ -4,13 +4,27 @@
 #     gevent-tasks, 2017
 # <<
 
+import re
 from typing import List
 from logging import Logger, getLogger
+from functools import partial, wraps
 from collections import OrderedDict
 
 from gevent.pool import Pool
 
 from gevent_tasks.tasks import Task, TaskPool
+
+
+UNDER_RE = re.compile(r'(_+[\w|\d])', re.I)
+
+
+def _convert_fn_name(name):
+    # type: (str) -> str
+    name = name[0].upper() + name[1:]
+    for c in UNDER_RE.findall(name):
+        x = c.strip('_').upper()
+        name = name.replace(c, x)
+    return name
 
 
 class TaskManager(object):
@@ -37,6 +51,60 @@ class TaskManager(object):
         for task in self._tasks.values():
             yield task
 
+    def task(self, _fn=None, **kwargs):
+        """ Register a method as a task via decorated function.
+
+            Can be used as a simple decorator, ::
+
+                @manager.task
+                def some_function(task):
+                    ...
+
+            or with keyword arguments that match those used
+            for :obj:`.Task`, ::
+
+                @manager.task(interval=30.0, timeout=25.0)
+                def some_function(task):
+                    ...
+
+            When keyword arguments are omitted the default values are applied:
+            ``name`` is the function's name converted to CamelCase,
+            ``timeout`` is 59 seconds, ``interval`` is 60 seconds, and
+            ``logger`` is built from the name of the name of
+            :obj:`.TaskManager.logger`.
+
+
+            Args:
+                _fn (Callable): function that takes at least one argument,
+                    ``task``, that will be run on a fixed interval for the
+                    lifetime of the current process.
+                kwargs: the same keyword arguments used for creating a
+                    :obj:`.Task` object.
+
+            Returns:
+                Callable
+        """
+        def make_task(f, **kw):
+            name = kw.get('name', _convert_fn_name(f.__name__))
+            kw.update({
+                'fn': f,
+                'name': name,
+                'timeout': kw.get('timeout', 59.0),
+                'interval': kw.get('interval', 60.0),
+                'logger': kw.get('logger', getLogger(
+                    self.logger.name + '.Task.%s' % name))})
+            return Task(**kw)
+
+        if _fn and callable(_fn):
+            self.add(make_task(_fn))
+            return _fn
+        else:
+            # spec'd out task
+            def inner(fn, **kwargs):
+                self.add(make_task(fn, **kwargs))
+                return fn
+            return partial(inner, **kwargs)
+
     @property
     def pool(self):
         # type: () -> TaskPool
@@ -51,7 +119,8 @@ class TaskManager(object):
         # type: (Task, bool) -> None
         if task.name in self._tasks:
             raise KeyError(task.name)
-        task.pool = self._pool
+        if task.pool is None:
+            task.pool = self._pool
         self._tasks[task.name] = task
         if start and not task.is_running:
             task.start()

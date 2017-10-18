@@ -37,10 +37,8 @@ patch_all()
 from gevent import sleep
 from gevent_tasks import Task, TaskManager, TaskPool
 
-
 def print_hi(task, *args):
     print('hi', args, task, task.timing)
-
 
 manager = TaskManager(TaskPool(size=3))
 manager.add_many(
@@ -61,7 +59,18 @@ from gevent_tasks import Task, cron
 ...
 ...
 Task('PrintHi', print_hi, interval=cron('* * * * *'))
+```
 
+The manager instance can also be used to register tasks via decorator,
+
+```python
+manage = TaskManager(TaskPool(size=3))
+
+@manage.task(interval=cron('* * * * *'))
+def every_minute(task, *args):
+    print('hi', args, task, task.timing)
+
+manage.start_all()
 ```
 
 ### Attribution
