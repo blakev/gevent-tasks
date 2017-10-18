@@ -14,16 +14,24 @@ from gevent import Greenlet, Timeout
 from gevent.pool import Pool
 
 
-def _or_zero(fn):
-    @wraps(fn)
-    def inner(self):
-        if not hasattr(self, '_run_times'):
-            raise AttributeError()
-        if len(self._run_times) == 0:
-            return 0
-        else:
-            return fn(self)
-    return inner
+class TaskPool(Pool):
+    """ Custom gevent thread pool for reporting capacity statistics. """
+
+    def __init__(self, size=None):
+        # type: (int) -> self
+        if size is not None:
+            size = max(2, size)
+        super(TaskPool, self).__init__(size, Greenlet)
+
+    @property
+    def running(self):
+        # type: () -> int
+        return self.size - self.free_count()
+
+    @property
+    def capacity(self):
+        # type: () -> float
+        return (1 - (self.free_count() / float(self.size))) * 100
 
 
 class Timing(object):
@@ -46,34 +54,34 @@ class Timing(object):
         return self._started
 
     @property
-    @_or_zero
+    def run_timings(self):
+        if not self._run_times:
+            return [-1]
+        return self._run_times
+
+    @property
     def average(self):
-        return self.total / self.count
+        return self.total / max(1, self.count)
 
     @property
-    @_or_zero
     def count(self):
-        return len(self._run_times)
+        return len(self.run_timings)
 
     @property
-    @_or_zero
     def last(self):
-        return self._run_times[-1]
+        return self.run_timings[-1]
 
     @property
-    @_or_zero
     def total(self):
-        return sum(self._run_times)
+        return sum(self.run_timings)
 
     @property
-    @_or_zero
     def best(self):
-        return min(self._run_times)
+        return min(self.run_timings)
 
     @property
-    @_or_zero
     def worst(self):
-        return max(self._run_times)
+        return max(self.run_timings)
 
 
 class Task(object):
@@ -177,21 +185,4 @@ class Task(object):
         return isinstance(self._interval, Real)
 
 
-class TaskPool(Pool):
-    """ Custom gevent thread pool for reporting capacity statistics. """
 
-    def __init__(self, size=None):
-        # type: (int) -> self
-        if size is not None:
-            size = max(2, size)
-        super(TaskPool, self).__init__(size, Greenlet)
-
-    @property
-    def running(self):
-        # type: () -> int
-        return self.size - self.free_count()
-
-    @property
-    def capacity(self):
-        # type: () -> float
-        return (1 - (self.free_count() / float(self.size))) * 100
