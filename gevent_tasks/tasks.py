@@ -5,8 +5,8 @@
 # <<
 
 import time
+from typing import List, Generator
 from numbers import Real
-from functools import wraps
 from logging import getLogger
 
 import gevent
@@ -26,61 +26,106 @@ class TaskPool(Pool):
     @property
     def running(self):
         # type: () -> int
+        """ The number of currently running tasks in our pool. """
         return self.size - self.free_count()
 
     @property
     def capacity(self):
         # type: () -> float
+        """ The current run capacity of our pool; how full as a percentage. """
         return (1 - (self.free_count() / float(self.size))) * 100
 
 
 class Timing(object):
-    def __init__(self):
-        self._started = 0
-        self._run_times = []
+    """ Instance inside of Task object tracks running times of that task. """
+
+    def __init__(self, task_name=None):
+        # type: (str) -> self
+        self._first_start = 0   # type: float
+        self._started = 0       # type: float
+        self._run_times = []    # type: List[float]
+        self.name = task_name or ''
+
+    def __iter__(self):
+        return self.history()
+
+    def __repr__(self):
+        return '<Timing(%scount=%d,started=%0.2f,last=%0.4f)>' % (
+            ('name=%s,' % self.name) if self.name else '', self.count,
+            self._first_start, self.last)
 
     def log(self, timing):
+        # type: (float) -> None
+        """ Mark a new finished time for the current task. """
         self._run_times.append(timing)
 
     def start(self):
+        # type: () -> None
+        """ Mark a new start time for the current task. """
         self._started = time.time()
+        if self._first_start == 0:
+            self._first_start = self._started
 
     def history(self):
-        for o in self._run_times:
+        # type: () -> Generator[float]
+        """ Iterator over all the saved timings. """
+        for o in self.run_timings:
             yield o
 
     @property
     def started(self):
+        # type: () -> float
+        """ Unix timestamp of the last/currently running task started. """
         return self._started
 
     @property
+    def first_started(self):
+        # type: () -> float
+        """ Unix timestamp of the first run of the task started. """
+        return self._first_start
+
+    @property
     def run_timings(self):
+        # type: () -> List[float]
+        """ Read-only getting for the collection of run timings.  """
         if not self._run_times:
             return [-1]
         return self._run_times
 
     @property
     def average(self):
+        """ Total runtime divided by the successful runs count. """
+        # type: () -> float
         return self.total / max(1, self.count)
 
     @property
     def count(self):
+        """ Total successful runs of a given task. """
+        # type: () -> int
         return len(self.run_timings)
 
     @property
     def last(self):
+        # type: () -> float
+        """ Runtime of the last task call. """
         return self.run_timings[-1]
 
     @property
     def total(self):
+        # type: () -> float
+        """ Total runtime, so far, of all task runs. """
         return sum(self.run_timings)
 
     @property
     def best(self):
+        # type: () -> float
+        """ Shortest single runtime for the task. """
         return min(self.run_timings)
 
     @property
     def worst(self):
+        # type: () -> float
+        """ Longest single runtime for the task. """
         return max(self.run_timings)
 
 
@@ -110,7 +155,7 @@ class Task(object):
         self._timeout_secs = timeout    # type: float
         self._timeout_obj = None        # type: Timeout
         self._interval = interval       # type: float
-        self.timing = Timing()          # type: Timing
+        self.timing = Timing(self.name) # type: Timing
         self.pool = pool                # type: TaskPool
 
     def __repr__(self):
