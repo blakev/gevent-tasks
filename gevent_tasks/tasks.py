@@ -17,6 +17,8 @@ from gevent.pool import Pool
 class TaskPool(Pool):
     """ Custom gevent thread pool for reporting capacity statistics. """
 
+    DEFAULT_POOL_SIZE = 10
+
     def __init__(self, size=None):
         # type: (int) -> self
         if size is not None:
