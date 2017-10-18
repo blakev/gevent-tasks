@@ -47,6 +47,10 @@ class TaskManager(object):
             yield task
 
     @property
+    def pool(self):
+        return self._pool
+
+    @property
     def task_names(self):
         return [t for t in self._tasks.keys()]
 

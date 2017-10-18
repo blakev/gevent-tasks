@@ -23,6 +23,10 @@ class TaskPool(Pool):
             size = max(2, size)
         super(TaskPool, self).__init__(size, Greenlet)
 
+    def __repr__(self):
+        return '<TaskPool(size=%d,running=%d,capacity=%0.1f%%)>' % (
+            self.size, self.running, self.capacity)
+
     @property
     def running(self):
         # type: () -> int
@@ -38,6 +42,8 @@ class TaskPool(Pool):
 
 class Timing(object):
     """ Instance inside of Task object tracks running times of that task. """
+
+    __slots__ = ('_first_start', '_run_times', '_started', 'name')
 
     def __init__(self, task_name=None):
         # type: (str) -> self
@@ -145,39 +151,44 @@ class Task(object):
         self.name = name                # type: str
         self.description = description  # type: str
         self.logger = logger or getLogger('%s.Task.%s' % (__name__, self.name))
-
-        self._fn = fn                   # type: Callable
-        self._fn_arg = args             # type: tuple
-        self._fn_kw = kwargs            # type: dict
-        self._g = None                  # type: Greenlet
-        self._running = False           # type: bool
-        self._schedule = False          # type: bool
-        self._timeout_secs = timeout    # type: float
-        self._timeout_obj = None        # type: Timeout
-        self._interval = interval       # type: float
-        self.timing = Timing(self.name) # type: Timing
-        self.pool = pool                # type: TaskPool
+        # ~~
+        self._fn = fn                    # type: Callable
+        self._fn_arg = args              # type: tuple
+        self._fn_kw = kwargs             # type: dict
+        self._g = None                   # type: Greenlet
+        self._running = False            # type: bool
+        self._schedule = False           # type: bool
+        self._timeout_secs = timeout     # type: float
+        self._timeout_obj = None         # type: Timeout
+        self._interval = interval        # type: float
+        self.timing = Timing(self.name)  # type: Timing
+        self.pool = pool                 # type: TaskPool
 
     def __repr__(self):
         return '<Task(name=%s)>' % self.name
 
     def __make(self):
+        # type: () -> Greenlet
         g = Greenlet(self._fn, self, *self._fn_arg, **self._fn_kw)
         g.link(self.__callback)
         return g
 
     def __callback(self, *args):
         duration = time.time() - self.timing.started
-        if self._timeout_secs and self._timeout_obj:
+        if self._timeout_secs and self._timeout_obj and \
+                self._timeout_obj.pending:
+            self.logger.debug('canceling timeout')
             self._timeout_obj.cancel()
         self._g = None
         self._running = False
         self.timing.log(duration)
         if self.is_periodic and self._schedule:
-            gevent.spawn_later(
-                max(0, self._interval - duration), self.start)
+            when = max(0, self._interval - duration)
+            gevent.spawn_later(when, self.start)
+            self.logger.debug('scheduled to run in %0.2f', when)
 
     def start(self):
+        # type: () -> None
         if self.is_running:
             self.logger.warning('task is already running')
         elif self._g:
@@ -191,10 +202,10 @@ class Task(object):
         if self._timeout_obj:
             self._timeout_obj.cancel()
             self._timeout_obj = None
+
         if self._timeout_secs > 0:
-            self._timeout_obj = Timeout(
-                self._timeout_secs, exception=TimeoutError)
-            self._timeout_obj.start()
+            self._timeout_obj = Timeout.start_new(
+                self._timeout_secs, TimeoutError)
 
         self.timing.start()
 
@@ -212,6 +223,7 @@ class Task(object):
             raise e
 
     def stop(self, force=False):
+        # type: (bool) -> None
         if self.is_running and self._g is not None:
             self._g.unlink(self.__callback)
             if force:
@@ -221,12 +233,14 @@ class Task(object):
 
     @property
     def is_running(self):
+        # type: () -> bool
         if self._interval:
             return self.timing.started + self._interval > time.time()
         return self._running  # guess
 
     @property
     def is_periodic(self):
+        # type: () -> bool
         return isinstance(self._interval, Real)
 
 
