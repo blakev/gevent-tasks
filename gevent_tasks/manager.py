@@ -95,14 +95,17 @@ class TaskManager(object):
         """
         def make_task(f, **kw):
             name = kw.get('name', _convert_fn_name(f.__name__))
+            logger = kw.get('logger', None)
+            if logger is None:
+                logger = getLogger(self.logger.name + '.Task.%s' % name)
             kw.update({
                 'fn': f,
                 'name': name,
                 'manager': self,
                 'timeout': kw.get('timeout', 59.0),
                 'interval': kw.get('interval', 60.0),
-                'logger': kw.get('logger', getLogger(
-                    self.logger.name + '.Task.%s' % name))})
+                'logger': logger
+            })
             return Task(**kw)
 
         if _fn and callable(_fn):
@@ -127,8 +130,13 @@ class TaskManager(object):
         """ Copy of a list of all the registered task's names. """
         return [t for t in self._tasks.keys()]
 
+    def get(self, name):
+        # type: (str) -> Task
+        """ Get a reference for a Task by its name. """
+        return self._tasks.get(name, None)
+
     def add(self, task, start=False):
-        # type: (Task, bool) -> None
+        # type: (Task, bool) -> Task
         """ Add a task to the manager and optionally start executing it. """
         if task.name in self._tasks:
             raise KeyError(task.name)
@@ -137,6 +145,7 @@ class TaskManager(object):
         self._tasks[task.name] = task
         if start and not task.running:
             task.start()
+        return task
 
     def add_many(self, *tasks, start=False):
         # type: (*Task, bool) -> None

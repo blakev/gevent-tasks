@@ -14,6 +14,8 @@ from crontab import CronTab
 from gevent import Greenlet, Timeout
 from gevent.pool import Pool
 
+from gevent_tasks.utils import gen_uuid
+
 __all__ = [
     'Task',
     'TaskPool',
@@ -105,7 +107,7 @@ class Timing(object):
         # type: () -> List[float]
         """ Read-only getting for the collection of run timings.  """
         if not self._run_times:
-            return [-1]
+            return [0]
         return self._run_times
 
     @property
@@ -195,7 +197,8 @@ class Task(object):
         self._interval = self.parse_interval(interval)
 
     def __repr__(self):
-        return '<Task(name=%s)>' % self.name
+        return '<Task(name=%s,runs=%d,runtime=%0.2f)>' % (
+            self.name, self.timing.count, self.timing.total)
 
     def __make(self):
         # type: () -> Greenlet
@@ -237,6 +240,20 @@ class Task(object):
 
     @classmethod
     def parse_interval(cls, i):
+        """ Turns an interval into a usable time tracking value.
+
+            Args:
+                i (Any): converts ``i`` into seconds if it's numeric,
+                    otherwise attempts to convert to a CronTab instance
+                    for per-minute granularity.
+
+            Returns:
+                float: when ``i`` is numeric-like.
+                CronTab: when ``i`` is string or cron-like.
+
+            Raises:
+                ValueError: when a determination cannot be made.
+        """
         if i is None or not i:
             # no interval
             return None
@@ -251,8 +268,72 @@ class Task(object):
         else:
             raise ValueError('cannot use interval of type %s' % type(i))
 
+    def fork(self, name=None):
+        """ Fork the current task to create a duplicate running under
+            the same TaskManager. This instance will also be tracked and
+            receive the same checks as if it were registered initially.
+
+            Args:
+                name (str): ``name`` of the new Task.
+
+            Raises:
+                ValueError: when a required attribute is not set or is
+                    missing.
+
+            Returns:
+                Task
+        """
+        if not self.manager:
+            raise ValueError('cannot fork task without manager')
+
+        if name is None:
+            name = '%sFork-%s' % (self.name, gen_uuid())
+
+        if name in self.manager.task_names:
+            raise ValueError(
+                'cannot create a task with duplicate name %s' % name)
+
+        kwargs = dict(
+            name=name,
+            args=self._fn_arg,
+            kwargs=self._fn_kw,
+            timeout=self._timeout_secs,
+            interval=self._interval,
+            description=self.description,
+            # generate a new logger with the new name
+            logger=None
+        )
+
+        # build a partial, from a decorator, then re-call to build
+        task_fn = self.manager.task(**kwargs)
+        task_fn(self._fn)
+
+        task = self.manager.get(name)
+
+        if task is None:
+            raise RuntimeError('could not add forked task to manager')
+
+        task.start()
+
+        return task
+
     def start(self):
         # type: () -> None
+        """ Start the periodic task.
+
+            Warning::
+                Do not call this function directly. It should instead by
+                called by a TaskManager instance or some other object that
+                can keep track of running Tasks.
+
+            Raises:
+                TimeoutError: when a Task's runtime exceeds its per-run
+                    limit for maximum execution time.
+                Exception: for all other cases.
+
+            Returns:
+                None
+        """
         if self.running:
             self.logger.warning('task is already running')
         elif self._g:
@@ -288,6 +369,7 @@ class Task(object):
 
     def stop(self, force=False):
         # type: (bool) -> None
+        """ Stop the periodic task. """
         if self.running is None and self._exc_info is not None:
             self._g.kill(self._exc_info[1], block=False)
         if self.running and self._g is not None:
@@ -300,7 +382,8 @@ class Task(object):
     @property
     def running(self):
         # type: () -> bool
-        if self._g is None:
+        """ Determines if the current task is running or stopped. """
+        if not self._g:
             return False
         if self._g.dead or self._g.exception is not None:
             return False
@@ -309,6 +392,7 @@ class Task(object):
     @property
     def is_periodic(self):
         # type: () -> bool
+        """ Determines if interval has been set, otherwise a one-off task. """
         return isinstance(self._interval, (CronTab, Real))
 
 
