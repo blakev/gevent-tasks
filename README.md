@@ -66,16 +66,18 @@ from gevent_tasks import Task, cron
 Task('PrintHi', print_hi, interval=cron('* * * * *'))
 ```
 
-The manager instance can also be used to register tasks via decorator,
+The manager instance can also be used to register tasks via decorator. Calling 
+`TaskManager.forever()` will block the code until there are no longer scheduled tasks or until an `Exception` 
+is thrown inside one of the running Tasks.
 
 ```python
-manage = TaskManager(TaskPool(size=3))
+manage = TaskManager()
 
 @manage.task(interval=cron('* * * * *'))
 def every_minute(task, *args):
     print('hi', args, task, task.timing)
 
-manage.start_all()
+manage.forever()
 ```
 
 ### Attribution
