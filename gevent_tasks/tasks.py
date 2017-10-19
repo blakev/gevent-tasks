@@ -25,12 +25,22 @@ __all__ = [
 
 
 class TaskPool(Pool):
-    """ Custom gevent thread pool for reporting capacity statistics. """
 
     DEFAULT_POOL_SIZE = 10
+    """int: size of underlying :class:`gevent.pool.Pool`. 
+    
+    This value is used when the :obj:`~gevent_tasks.TaskManager` has an 
+    ambiguous pool defined when it's instantiated.
+    """
 
     def __init__(self, size=None):
-        # type: (int) -> self
+        """Custom gevent thread pool for reporting capacity statistics.
+
+        Args:
+            size (int, optional): thread pool size, maximum number of
+                concurrent tasks that can be run at the same time.
+
+        """
         if size is not None:
             size = max(2, size)
         super(TaskPool, self).__init__(size, Greenlet)
@@ -41,23 +51,30 @@ class TaskPool(Pool):
 
     @property
     def running(self):
-        # type: () -> int
-        """ The number of currently running tasks in our pool. """
+        """int: The number of currently running tasks in our pool."""
         return self.size - self.free_count()
 
     @property
     def capacity(self):
         # type: () -> float
-        """ The current run capacity of our pool; how full as a percentage. """
+        """float: The current run capacity of our pool; how full as
+        a percentage.
+        """
         return (1 - (self.free_count() / float(self.size))) * 100
 
 
 class Timing(object):
-    """ Instance inside of Task object tracks running times of that task. """
 
     __slots__ = ('_first_start', '_run_times', '_started', 'name')
 
     def __init__(self, task_name=None):
+        """ Instance inside of Task object tracks running times of that task.
+
+        Args:
+            task_name (str, optional): this is filled in automatically when
+                an instance is created inside of a :obj:`.Task`.
+
+        """
         # type: (str) -> self
         self._first_start = 0   # type: float
         self._started = 0       # type: float
@@ -73,77 +90,82 @@ class Timing(object):
             self.count, self.started, self.last)
 
     def log(self, timing):
-        # type: (float) -> None
-        """ Mark a new finished time for the current task. """
+        """Mark a new finished time for the current task.
+
+        Args:
+            timing (float): recorded time in seconds.
+
+        Returns:
+            None
+        """
         self._run_times.append(timing)
 
     def start(self):
-        # type: () -> None
-        """ Mark a new start time for the current task. """
+        """Mark a new start time for the current task.
+
+        Returns:
+            None
+        """
         self._started = time.time()
         if self._first_start == 0:
             self._first_start = self._started
 
     def history(self):
-        # type: () -> Generator[float]
-        """ Iterator over all the saved timings. """
+        """Iterate over all the saved timings.
+
+        Yields:
+            float: the next timing recorded.
+        """
         for o in self.run_timings:
             yield o
 
     @property
     def started(self):
-        # type: () -> float
-        """ Unix timestamp of the last/currently running task started. """
+        """float: Unix timestamp of the last/currently running task started."""
         return self._started
 
     @property
     def first_started(self):
-        # type: () -> float
-        """ Unix timestamp of the first run of the task started. """
+        """float: Unix timestamp of the first run of the task started. """
         return self._first_start
 
     @property
     def run_timings(self):
-        # type: () -> List[float]
-        """ Read-only getting for the collection of run timings.  """
+        """:obj:`list` of obj:`floats`: read-only access to the log of recorded
+        run timings.
+        """
         if not self._run_times:
             return [0]
         return self._run_times
 
     @property
     def average(self):
-        """ Total runtime divided by the successful runs count. """
-        # type: () -> float
+        """float: Total runtime divided by the successful runs count. """
         return self.total / max(1, self.count)
 
     @property
     def count(self):
-        """ Total successful runs of a given task. """
-        # type: () -> int
+        """int: Total successful runs of a given task. """
         return len(self.run_timings)
 
     @property
     def last(self):
-        # type: () -> float
-        """ Runtime of the last task call. """
+        """float: Runtime of the last task call. """
         return self.run_timings[-1]
 
     @property
     def total(self):
-        # type: () -> float
-        """ Total runtime, so far, of all task runs. """
+        """float: Total runtime, so far, of all task runs. """
         return sum(self.run_timings)
 
     @property
     def best(self):
-        # type: () -> float
-        """ Shortest single runtime for the task. """
+        """float: Shortest single runtime for the task. """
         return min(self.run_timings)
 
     @property
     def worst(self):
-        # type: () -> float
-        """ Longest single runtime for the task. """
+        """float: Longest single runtime for the task. """
         return max(self.run_timings)
 
 
