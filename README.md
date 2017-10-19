@@ -1,10 +1,14 @@
 # gevent-tasks
 
 [![pypi](https://img.shields.io/pypi/v/gevent-tasks.svg?style=flat)](https://pypi.python.org/pypi/gevent-tasks)
+[![docs](https://readthedocs.org/projects/gevent-tasks/badge/?version=latest)](http://gevent-tasks.readthedocs.io/en/latest/)
 [![MIT License](https://img.shields.io/github/license/blakev/gevent-tasks.svg?style=flat)](https://github.com/blakev/gevent-tasks/blob/master/LICENSE)
 
 
-Task manager built around the gevent green threads library.
+Background task manager using Gevent and Green threads.
+
+- Check out [the documentation](http://gevent-tasks.readthedocs.io/en/latest/).
+- Learn about [Gevent]().
 
 This library is designed to allow a developer to run arbitrary "tasks" as background
 threads on a fixed/normalized interval.  Each task is a wrapped
