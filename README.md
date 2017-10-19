@@ -37,27 +37,48 @@ $ pip install git+git@github.com:blakev/gevent-tasks.git@develop
 
 ## Examples
 
+A classic example,
 
+```python
+# print our system uptime every minute, indefinitely
+
+from datetime import timedelta
+from gevent_tasks import TaskManager, cron
+
+manage = TaskManager()
+
+@manage.task(interval=cron('* * * * *'))
+def system_uptime(task):
+    with open('/proc/uptime', 'r') as f:
+        uptime_seconds = float(f.readline().split()[0])
+        uptime = str(timedelta(seconds=uptime_seconds))
+    print(uptime)
+
+manage.forever(stop_after_exc=False)
+```
+
+Contrived example,
 
 ```python
 from gevent.monkey import patch_all
 patch_all()
 
-from gevent import sleep
 from gevent_tasks import Task, TaskManager, TaskPool
 
-def print_hi(task, *args):
-    print('hi', args, task, task.timing)
+from myapp.tasks import check_websockets, check_uptime, check_health
 
-manager = TaskManager(TaskPool(size=3))
+pool = TaskPool(size=25)
+manager = TaskManager(pool=pool)
+
 manager.add_many(
-    Task('PrintHi', print_hi, interval=1.5),
-    Task('PrintHiArgs', print_hi, args=(1, 2, 3,), interval=3.0)
+    Task('WebsocketHealth', check_websockets, interval=7.5),
+    Task('ApplicationHealth', check_uptime, interval=30.0),
+    Task('SystemHealth', check_health, args=('localhost',), interval=2.5)
 )
 manager.start_all()
-
-while True:
-    sleep(0.25)
+..
+..
+http_server.serve_forever()
 ```
 
 Using the [`parse-crontab`](https://github.com/josiahcarlson/parse-crontab)
@@ -65,9 +86,9 @@ Using the [`parse-crontab`](https://github.com/josiahcarlson/parse-crontab)
 
 ```python
 from gevent_tasks import Task, cron
-...
-...
-Task('PrintHi', print_hi, interval=cron('* * * * *'))
+..
+..
+Task('ShowCharts', show_charts, interval=cron('* * * * *'), timeout=30.0)
 ```
 
 The manager instance can also be used to register tasks via decorator. Calling 
