@@ -5,7 +5,7 @@
 # <<
 
 __author__ = 'Blake VandeMerwe'
-__version__ = '0.1.3'
+__version__ = '0.1.4'
 __license__ = 'MIT'
 __contact__ = 'blakev@null.net'
 __url__ = 'https://github.com/blakev/gevent-tasks'
