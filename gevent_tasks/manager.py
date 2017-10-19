@@ -7,9 +7,10 @@
 import re
 from typing import List
 from logging import Logger, getLogger
-from functools import partial, wraps
+from functools import partial
 from collections import OrderedDict
 
+from gevent import sleep
 from gevent.pool import Pool
 
 from gevent_tasks.tasks import Task, TaskPool
@@ -34,8 +35,10 @@ def _convert_fn_name(name):
 class TaskManager(object):
     """ Interface for managing tasks and running them in a Gevent Pool. """
 
+    FOREVER_POLL_SECS = 0.5
+
     def __init__(self, pool=None, logger=None):
-        # type: (Pool, Logger) -> self
+        # type: (Pool, Logger, int) -> self
 
         size = None
         if isinstance(pool, int):
@@ -131,7 +134,7 @@ class TaskManager(object):
         if task.pool is None:
             task.pool = self._pool
         self._tasks[task.name] = task
-        if start and not task.is_running:
+        if start and not task.running:
             task.start()
 
     def add_many(self, *tasks, start=False):
@@ -167,7 +170,7 @@ class TaskManager(object):
             self.stop(task, force)
 
     def remove_task(self, task, force=False):
-        # type: (Task, bool) -> None
+        # type: (Task, bool) -> Task
         """ Unregister a task from the manager by name or instance. """
         if hasattr(task, 'name'):
             name = task.name
@@ -176,11 +179,48 @@ class TaskManager(object):
         t = self._tasks.pop(name, None)
         if t:
             t.stop(force)
+        return t
 
-    def remove_all(self, force=False):
-        # type: (bool) -> None
+    def remove_all(self, force=True):
+        # type: (bool) -> Generator[Task]
         """ Unregister all tasks from the manager. """
         for task in self.task_names:
-            self.remove_task(task, force)
+            yield self.remove_task(task, force)
 
+    def forever(self, *exceptions, stop_after_exc=True, stop_on_zero=True):
+        # type: (*Exception) -> bool
+        """ Blocks in an infinite loop after starting all registered tasks.
+            The only way to break out is if one of the included ``exceptions``
+            is raised while being executed in a running task.
 
+            Args:
+                exceptions (Exception):
+                stop_after_exc (bool):
+                stop_on_zero (bool):
+
+            Returns:
+                bool
+         """
+        if not exceptions:
+            exceptions = (Exception,)
+        self.start_all()
+        try:
+            while True:
+                if stop_on_zero:
+                    if self.pool.running == 0 and len(self._tasks) == 0:
+                        raise RuntimeError('no tasks can run in pool')
+                for t in self:
+                    err = t._exc_info
+                    if err:
+                        if stop_after_exc:
+                            exc_cls, exc_val, trace = err
+                            self.logger.error(exc_val)
+                            raise exc_cls(*exc_val.args)
+                        self.remove_task(t.name)
+                sleep(self.FOREVER_POLL_SECS)
+        except KeyboardInterrupt:
+            pass
+        except exceptions as e:
+            self.logger.exception(e, exc_info=True)
+            raise e
+        return True
