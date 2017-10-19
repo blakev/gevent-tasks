@@ -146,8 +146,9 @@ class Timing(object):
 
 
 class Task(object):
-    def __init__(self, name, fn, args=None, kwargs=None, timeout=None,
-                 interval=None, description=None, logger=None, pool=None):
+    def __init__(self, name, fn, args=None, kwargs=None,
+                 timeout=None, interval=None, description=None, logger=None,
+                 manager=None, pool=None):
         """ A Task represents a unit of work that can take place in the
             background of a gevent-based application.
 
@@ -160,6 +161,7 @@ class Task(object):
                 interval (Union[float, CronTab]):
                 description (str):
                 logger (Logger):
+                manager (TaskManager):
                 pool (TaskPool):
         """
         if timeout is None:
@@ -181,12 +183,15 @@ class Task(object):
         self._g = None                   # type: Greenlet
         self._running = False            # type: bool
         self._exc_info = None            # type: tuple
+        self._last_value = None          # type: Any
         self._schedule = False           # type: bool
         self._timeout_secs = timeout     # type: float
         self._timeout_obj = None         # type: Timeout
-        self.timing = Timing(self.name)  # type: Timing
+        # ~~ back references
         self.pool = pool                 # type: TaskPool
-        # ~~
+        self.manager = manager           # type: TaskManager
+        self.timing = Timing(self.name)  # type: Timing
+        # ~~ delayed parsing
         self._interval = self.parse_interval(interval)
 
     def __repr__(self):
@@ -201,6 +206,8 @@ class Task(object):
 
     def __callback(self, *args):
         g = args[0] if args else None
+        if g is not None and hasattr(g, 'value'):
+            self._last_value = g.value
         duration = time.time() - self.timing.started
         if self._timeout_secs and self._timeout_obj and \
                 self._timeout_obj.pending:
@@ -220,10 +227,17 @@ class Task(object):
     def __err_callback(self, g):
         self._running = None
         self._exc_info = g.exc_info
+        self.logger.error('raised an exception')
+
+    @property
+    def value(self):
+        # type: () -> Any
+        """ Stores the previous run's value. """
+        return self._last_value
 
     @classmethod
     def parse_interval(cls, i):
-        if i is None:
+        if i is None or not i:
             # no interval
             return None
         elif isinstance(i, Real):
@@ -266,7 +280,7 @@ class Task(object):
 
         except TimeoutError as e:
             self.logger.warning(e)
-            self.__callback(None)
+            self.__callback()
 
         except Exception as e:
             self.logger.exception(e, exc_info=True)
@@ -281,12 +295,16 @@ class Task(object):
             if force:
                 self._g.kill(block=True, timeout=self._timeout_secs)
         self._schedule = False
-        self.__callback(None)
+        self.__callback()
 
     @property
     def running(self):
         # type: () -> bool
-        return self._running  # guess
+        if self._g is None:
+            return False
+        if self._g.dead or self._g.exception is not None:
+            return False
+        return any([self._g.started, self._running])
 
     @property
     def is_periodic(self):

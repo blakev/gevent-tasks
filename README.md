@@ -80,6 +80,24 @@ def every_minute(task, *args):
 manage.forever()
 ```
 
+You can also reference the previous return value, allowing tasks to build on
+themselves over time without human / programmatic interaction.
+
+```python
+@manage.task(interval=1)
+def random_number(task):
+    num = random.randint(0, 100)
+    print(task.value, num)
+    return num
+
+.. output ..
+
+None 51
+51 50
+50 88
+88 26
+```
+
 ### Attribution
 
 This module relies primarily on the [`gevent`](http://www.gevent.org/index.html) 

@@ -98,6 +98,7 @@ class TaskManager(object):
             kw.update({
                 'fn': f,
                 'name': name,
+                'manager': self,
                 'timeout': kw.get('timeout', 59.0),
                 'interval': kw.get('interval', 60.0),
                 'logger': kw.get('logger', getLogger(
