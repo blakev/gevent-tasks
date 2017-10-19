@@ -180,6 +180,7 @@ class Task(object):
         self._fn_kw = kwargs             # type: dict
         self._g = None                   # type: Greenlet
         self._running = False            # type: bool
+        self._exc_info = None            # type: tuple
         self._schedule = False           # type: bool
         self._timeout_secs = timeout     # type: float
         self._timeout_obj = None         # type: Timeout
@@ -194,10 +195,12 @@ class Task(object):
     def __make(self):
         # type: () -> Greenlet
         g = Greenlet(self._fn, self, *self._fn_arg, **self._fn_kw)
-        g.link(self.__callback)
+        g.link_value(self.__callback)
+        g.link_exception(self.__err_callback)
         return g
 
     def __callback(self, *args):
+        g = args[0] if args else None
         duration = time.time() - self.timing.started
         if self._timeout_secs and self._timeout_obj and \
                 self._timeout_obj.pending:
@@ -213,6 +216,10 @@ class Task(object):
                 when = max(0, self._interval - duration)
             gevent.spawn_later(when, self.start)
             self.logger.debug('scheduled to run in %0.2f', when)
+
+    def __err_callback(self, g):
+        self._running = None
+        self._exc_info = g.exc_info
 
     @classmethod
     def parse_interval(cls, i):
@@ -232,7 +239,7 @@ class Task(object):
 
     def start(self):
         # type: () -> None
-        if self.is_running:
+        if self.running:
             self.logger.warning('task is already running')
         elif self._g:
             self.logger.error('task is already claimed greenlet')
@@ -259,7 +266,7 @@ class Task(object):
 
         except TimeoutError as e:
             self.logger.warning(e)
-            self.__callback()
+            self.__callback(None)
 
         except Exception as e:
             self.logger.exception(e, exc_info=True)
@@ -267,15 +274,17 @@ class Task(object):
 
     def stop(self, force=False):
         # type: (bool) -> None
-        if self.is_running and self._g is not None:
+        if self.running is None and self._exc_info is not None:
+            self._g.kill(self._exc_info[1], block=False)
+        if self.running and self._g is not None:
             self._g.unlink(self.__callback)
             if force:
                 self._g.kill(block=True, timeout=self._timeout_secs)
         self._schedule = False
-        self.__callback()
+        self.__callback(None)
 
     @property
-    def is_running(self):
+    def running(self):
         # type: () -> bool
         return self._running  # guess
 
