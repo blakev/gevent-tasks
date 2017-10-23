@@ -34,11 +34,13 @@ class TaskPool(Pool):
     """
 
     def __init__(self, size=None):
-        """Custom gevent thread pool for reporting capacity statistics.
+        """ Custom gevent thread pool for reporting capacity statistics.
 
         Args:
             size (int, optional): thread pool size, maximum number of
-                concurrent tasks that can be run at the same time.
+                concurrent tasks that can be run at the same time. When
+                ``size`` is None there is no hard-limit for the number
+                of greenlets that can run at once.
 
         """
         if size is not None:
@@ -57,9 +59,7 @@ class TaskPool(Pool):
     @property
     def capacity(self):
         # type: () -> float
-        """float: The current run capacity of our pool; how full as
-        a percentage.
-        """
+        """float: The current capacity of pool; how full as a percentage."""
         return (1 - (self.free_count() / float(self.size))) * 100
 
 
@@ -90,7 +90,7 @@ class Timing(object):
             self.count, self.started, self.last)
 
     def log(self, timing):
-        """Mark a new finished time for the current task.
+        """ Mark a new finished time for the current task.
 
         Args:
             timing (float): recorded time in seconds.
@@ -101,7 +101,7 @@ class Timing(object):
         self._run_times.append(timing)
 
     def start(self):
-        """Mark a new start time for the current task.
+        """ Mark a new start time for the current task.
 
         Returns:
             None
@@ -173,20 +173,28 @@ class Task(object):
     def __init__(self, name, fn, args=None, kwargs=None,
                  timeout=None, interval=None, description=None, logger=None,
                  manager=None, pool=None):
-        """ A Task represents a unit of work that can take place in the
-            background of a gevent-based application.
+        """ A Task represents a unit of work, run on a fixed interval,
+         that can take place in the background of a gevent-based application.
 
-            Args:
-                name (str):
-                fn (Callable):
-                args (Tuple[Any]):
-                kwargs (Dict[str, Any]):
-                timeout (float):
-                interval (Union[float, CronTab]):
-                description (str):
-                logger (Logger):
-                manager (TaskManager):
-                pool (TaskPool):
+        Args:
+            name (str): the name of the Task. Used for reference in a Manager,
+                as well as generating logging instances.
+            fn (Callable): the function wrapped by the Task instance.
+            args (Tuple[Any]): arguments supplied to ``fn``.
+            kwargs (Dict[str, Any]): keyword arguments supplied to ``fn``.
+            timeout (float): raise :exc:`gevent.Timeout` if ``fn`` has been
+                running longer than this amount. If no timeout is set the
+                function can run indefinitely.
+            interval (float or :obj:`.CronTab`): run ``fn`` every ``interval``
+                seconds for as long as the application is running. An instance
+                of :class:`crontab.CronTab` is also acceptable.
+            description (str): meta-data description for a Task instance.
+            logger (:obj:`logging.Logger`): instance of a standard library
+                Logger.
+            manager (:class:`~gevent_tasks.manager.TaskManager`): instance that
+                will control and track our running task instance.
+            pool (:class:`~gevent_tasks.tasks.TaskPool`): filled in by
+                ``manager`` when the Task is ``add``.
         """
         if timeout is None:
             timeout = -1
@@ -257,24 +265,24 @@ class Task(object):
     @property
     def value(self):
         # type: () -> Any
-        """ Stores the previous run's value. """
+        """Any: Stores the previous run's value. """
         return self._last_value
 
     @classmethod
     def parse_interval(cls, i):
         """ Turns an interval into a usable time tracking value.
 
-            Args:
-                i (Any): converts ``i`` into seconds if it's numeric,
-                    otherwise attempts to convert to a CronTab instance
-                    for per-minute granularity.
+        Args:
+            i (Any): converts ``i`` into seconds if it's numeric,
+                otherwise attempts to convert to a CronTab instance
+                for per-minute granularity.
 
-            Returns:
-                float: when ``i`` is numeric-like.
-                CronTab: when ``i`` is string or cron-like.
+        Returns:
+            float: when ``i`` is numeric-like.
+            CronTab: when ``i`` is string or cron-like.
 
-            Raises:
-                ValueError: when a determination cannot be made.
+        Raises:
+            ValueError: when a determination cannot be made.
         """
         if i is None or not i:
             # no interval
@@ -295,15 +303,15 @@ class Task(object):
             the same TaskManager. This instance will also be tracked and
             receive the same checks as if it were registered initially.
 
-            Args:
-                name (str): ``name`` of the new Task.
+        Args:
+            name (str): ``name`` of the new Task.
 
-            Raises:
-                ValueError: when a required attribute is not set or is
-                    missing.
+        Raises:
+            ValueError: when a required attribute is not set or is
+                missing.
 
-            Returns:
-                Task
+        Returns:
+            Task
         """
         if not self.manager:
             raise ValueError('cannot fork task without manager')
@@ -343,18 +351,18 @@ class Task(object):
         # type: () -> None
         """ Start the periodic task.
 
-            Warning::
-                Do not call this function directly. It should instead by
-                called by a TaskManager instance or some other object that
-                can keep track of running Tasks.
+        Warning:
+            Do not call this function directly. It should instead by
+            called by a TaskManager instance or some other object that
+            can keep track of running Tasks.
 
-            Raises:
-                TimeoutError: when a Task's runtime exceeds its per-run
-                    limit for maximum execution time.
-                Exception: for all other cases.
+        Raises:
+            TimeoutError: when a Task's runtime exceeds its per-run
+                limit for maximum execution time.
+            Exception: for all other cases.
 
-            Returns:
-                None
+        Returns:
+            None
         """
         if self.running:
             self.logger.warning('task is already running')
@@ -391,7 +399,15 @@ class Task(object):
 
     def stop(self, force=False):
         # type: (bool) -> None
-        """ Stop the periodic task. """
+        """ Stop the periodic task.
+
+        Args:
+             force (bool): block the pool and event loop until this task
+                can be forcibly terminated.
+
+        Returns:
+            None
+        """
         if self.running is None and self._exc_info is not None:
             self._g.kill(self._exc_info[1], block=False)
         if self.running and self._g is not None:
@@ -403,8 +419,7 @@ class Task(object):
 
     @property
     def running(self):
-        # type: () -> bool
-        """ Determines if the current task is running or stopped. """
+        """bool: if the current task is running or stopped."""
         if not self._g:
             return False
         if self._g.dead or self._g.exception is not None:
@@ -413,8 +428,7 @@ class Task(object):
 
     @property
     def is_periodic(self):
-        # type: () -> bool
-        """ Determines if interval has been set, otherwise a one-off task. """
+        """bool: if ``interval`` is set and also a valid type."""
         return isinstance(self._interval, (CronTab, Real))
 
 
