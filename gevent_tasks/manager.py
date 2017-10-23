@@ -11,7 +11,6 @@ from functools import partial
 from collections import OrderedDict
 
 from gevent import sleep
-from gevent.pool import Pool
 
 from gevent_tasks.tasks import Task, TaskPool
 
@@ -24,7 +23,14 @@ __all__ = [
 
 def _convert_fn_name(name):
     # type: (str) -> str
-    """ Converts underscore named functions to CamelCase. """
+    """ Converts underscore named functions to CamelCase.
+
+        Args:
+            name (str): the name of a function; or any string.
+
+        Returns:
+            :py:`str`
+    """
     name = name[0].upper() + name[1:]
     for c in UNDER_RE.findall(name):
         x = c.strip('_').upper()
@@ -33,13 +39,35 @@ def _convert_fn_name(name):
 
 
 class TaskManager(object):
-    """ Interface for managing tasks and running them in a Gevent Pool. """
 
     FOREVER_POLL_SECS = 0.5
+    """float: number of seconds to :func:`gevent.sleep` in our 
+    :func:`~gevent_tasks.manager.TaskManager.forever` block between 
+    looking for failed tasks.
+    """
 
     def __init__(self, pool=None, logger=None):
-        # type: (Pool, Logger, int) -> self
+        """ Interface for managing tasks and running them in a Gevent Pool.
 
+            Args:
+                pool (:class:`gevent.pool.Pool`): the concurrency pool that all
+                    of our underlying periodic tasks will run in. This is
+                    important to remember since our pool can only process
+                    its defined size of threads at one time. Tasks that block
+                    waiting for space in the pool may lapse their rerun period
+                    and fall into an undefined state.
+
+                    The recommended pool to use is
+                    :obj:`gevent_tasks.tasks.TaskPool` which has helper methods
+                    with information about the current run state of its
+                    greenlets_.
+
+                logger (:obj:`logging.Logger`): logging instance from the
+                    standard library. If one isn't provided a new one will be
+                    made for this instance.
+
+            .. _greenlets: http://www.gevent.org/gevent.html#greenlet-objects
+        """
         size = None
         if isinstance(pool, int):
             size = pool
@@ -69,8 +97,8 @@ class TaskManager(object):
                 def some_function(task):
                     ...
 
-            or with keyword arguments that match those used
-            for :obj:`.Task`, ::
+            or with keyword arguments that match those used for
+            :obj:`.Task`, ::
 
                 @manager.task(interval=30.0, timeout=25.0)
                 def some_function(task):
@@ -91,7 +119,7 @@ class TaskManager(object):
                     :obj:`.Task` object.
 
             Returns:
-                Callable
+                Callable of the underlying function.
         """
         def make_task(f, **kw):
             name = kw.get('name', _convert_fn_name(f.__name__))
@@ -120,24 +148,46 @@ class TaskManager(object):
 
     @property
     def pool(self):
-        # type: () -> TaskPool
-        """ Reference to the underlying TaskPool instance. """
+        """ Reference to the underlying TaskPool instance.
+
+            Returns:
+                :obj:`.TaskPool`
+        """
         return self._pool
 
     @property
     def task_names(self):
-        # type: () -> List[str]
-        """ Copy of a list of all the registered task's names. """
+        """ Copy of a list of all the registered task's names.
+
+            Returns:
+                list(str)
+        """
         return [t for t in self._tasks.keys()]
 
     def get(self, name):
-        # type: (str) -> Task
-        """ Get a reference for a Task by its name. """
+        """ Get a reference for a Task by its name.
+
+            Returns:
+                :obj:`.Task` when ``name`` is registered, ``None`` otherwise.
+        """
         return self._tasks.get(name, None)
 
     def add(self, task, start=False):
         # type: (Task, bool) -> Task
-        """ Add a task to the manager and optionally start executing it. """
+        """ Add a task to the manager and optionally start executing it.
+
+            Args:
+                task (:obj:`.Task`): instance of Task to track in our manager.
+                start (bool): if the task is not in a running state, should
+                    it be started.
+
+            Raises:
+                KeyError: when the Task's name is the same as one already being
+                    tracked.
+
+            Returns:
+                ``task``
+        """
         if task.name in self._tasks:
             raise KeyError(task.name)
         if task.pool is None:
@@ -149,39 +199,94 @@ class TaskManager(object):
 
     def add_many(self, *tasks, start=False):
         # type: (*Task, bool) -> None
-        """ Add many tasks to the manager. """
+        """ Add many tasks to the manager.
+
+            Args:
+                *tasks (:obj:`.Task`): variable amount of Tasks to track.
+                start (bool): checks if each task has been started, if it
+                    hasn't when ``True`` the task will start.
+
+            Raises:
+                KeyError: when one of the Task's name is the same as one
+                    already being tracked.
+
+            Returns:
+                None
+        """
         for task in tasks:
             self.add(task, start=start)
 
     def start(self, task_name):
         # type: (str) -> None
-        """ Start a registered task by name. """
+        """ Starts a registered Task by name.
+
+            Args:
+                 task_name (str): will start a task by name if it's currently
+                    being tracked in the manager.
+
+            Returns:
+                None
+
+            Raises:
+                Nothing: will "fail" silently if a non-tracked name is given.
+        """
         t = self._tasks.get(task_name, None)
         if t:
             t.start()
 
     def start_all(self):
         # type: () -> None
-        """ Start all registered tasks. """
+        """ Calls :func:`~start` on each Task being tracked.
+
+            Returns:
+                None
+        """
         for task in self.task_names:
             self.start(task)
 
     def stop(self, task_name, force=False):
-        # type: (str, bool) -> None
-        """ Stop a registered task by name. """
+        """ Stop a registered task by name.
+
+            Args:
+                task_name (str): will stop a task by name if it's currently
+                    being tracked in the manager and running.
+                force (bool): block the pool and event loop until this task
+                    can be forcibly terminated.
+
+            Returns:
+                None
+
+            Raises:
+                Nothing: will "fail" silently if a non-tracked name is given.
+        """
         t = self._tasks.get(task_name, None)
         if t:
             t.stop(force)
 
     def stop_all(self, force=False):
-        # type: (bool) -> None
-        """ Stop all registered tasks. """
+        """ Calls :func:`~stop` on each Task being tracked.
+
+            Args:
+                force (bool): block the pool and event loop until each task
+                    can be forcibly terminated.
+
+            Returns:
+                None
+         """
         for task in self.task_names:
             self.stop(task, force)
 
     def remove_task(self, task, force=False):
-        # type: (Task, bool) -> Task
-        """ Unregister a task from the manager by name or instance. """
+        """ Unregister a task from the manager by name or instance.
+
+            Args:
+                task (str or :obj:`.Task`): reference to a tracked Task.
+                force (bool): calls :func:`.stop` with ``force`` before
+                    removing the Task from our manager.
+
+            Returns:
+                :obj:`Task` or ``None``
+        """
         if hasattr(task, 'name'):
             name = task.name
         else:
@@ -192,8 +297,17 @@ class TaskManager(object):
         return t
 
     def remove_all(self, force=True):
-        # type: (bool) -> Generator[Task]
-        """ Unregister all tasks from the manager. """
+        """ Calls :func:`.remove_task` for each Task being tracked.
+
+            Args:
+                force (bool): calls :func:`.stop` with ``force`` before
+                    removing the Task from our manager.
+
+            Yields:
+                :obj:`.Task`: each Task as it's removed. Allows for accessing
+                    additional runtime information before being garbage
+                    collected.
+        """
         for task in self.task_names:
             yield self.remove_task(task, force)
 
@@ -203,14 +317,28 @@ class TaskManager(object):
             The only way to break out is if one of the included ``exceptions``
             is raised while being executed in a running task.
 
+            Note:
+                The loop will sleep for :attr:`.FOREVER_POOL_SECS` between
+                checking Tasks for a failed state.
+
             Args:
-                exceptions (Exception):
-                stop_after_exc (bool):
-                stop_on_zero (bool):
+                *exceptions (Exception): variable number of Exception classes
+                    to raise if an error occurs in a Task. This will break the
+                    Forever loop and effectively stop our TaskPool.
+
+                    Note:
+                        :exc:`KeyboardInterrupt` is exempt from ``exceptions``
+                        and will fail "gracefully" instead of re-raising to
+                        break the loop.
+
+                stop_after_exc (bool): stop the loop after our first exception.
+                stop_on_zero (bool): stop the loop if no tasks are running.
 
             Returns:
-                bool
+                bool: ``True`` if everything stopped gracefully,
+                    otherwise ``False``.
          """
+        e = None
         if not exceptions:
             exceptions = (Exception,)
         self.start_all()
@@ -233,4 +361,5 @@ class TaskManager(object):
         except exceptions as e:
             self.logger.exception(e, exc_info=True)
             raise e
-        return True
+        finally:
+            return e is None
