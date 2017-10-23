@@ -3,13 +3,6 @@ gevent-tasks
 
 Background task manager using Gevent and Green threads.
 
-Reference
----------
-
-- `Task`_
-- `Task Timing`_
-- `TaskManager`_
-- `TaskPool`_
 
 Task
 ----
@@ -17,25 +10,31 @@ Task
 .. autoclass:: gevent_tasks.tasks.Task
    :members:
 
-Task Timing
------------
+Task's Timing
+-------------
 
 .. autoclass:: gevent_tasks.tasks.Timing
    :members:
 
 
-TaskManager
------------
+Task Manager
+------------
 
 .. autoclass:: gevent_tasks.manager.TaskManager
    :members:
 
-TaskPool
---------
+Task Pool
+---------
 
 .. autoclass:: gevent_tasks.tasks.TaskPool
    :members:
 
+
+Utility Functions
+-----------------
+
+.. automodule:: gevent_tasks.utils
+   :members:
 
 License
 -------
