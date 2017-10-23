@@ -59,6 +59,8 @@ setup(
     author=A['author'],
     author_email=A['contact'],
     url=A['url'],
+    license=A['license'],
+    documentation='http://gevent-tasks.readthedocs.io/en/latest/',
     description='Background task management using gevent and green threads.',
     long_description=long_description,
     packages=find_packages(),
