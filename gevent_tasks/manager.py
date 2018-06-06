@@ -4,41 +4,21 @@
 #     gevent-tasks, 2017
 # <<
 
-import re
-from typing import List
-from logging import Logger, getLogger
+from logging import getLogger
 from functools import partial
 from collections import OrderedDict
 
 from gevent import sleep
 
-from gevent_tasks.tasks import Task, TaskPool
+from gevent_tasks.tasks import Task
+from gevent_tasks.pool import TaskPool
+from gevent_tasks.utils import convert_fn_name
 
-UNDER_RE = re.compile(r'(_+[\w|\d])', re.I)
-
-__all__ = [
-    'TaskManager'
-]
-
-
-def _convert_fn_name(name):
-    # type: (str) -> str
-    """ Converts underscore named functions to CamelCase.
-
-    Args:
-        name (str): the name of a function; or any string.
-
-    Returns:
-        :py:`str`
-    """
-    name = name[0].upper() + name[1:]
-    for c in UNDER_RE.findall(name):
-        x = c.strip('_').upper()
-        name = name.replace(c, x)
-    return name
+__all__ = ['TaskManager']
 
 
 class TaskManager(object):
+    __slots__ = ('logger', '_pool', '_tasks',)
 
     FOREVER_POLL_SECS = 0.5
     """float: number of seconds to :func:`gevent.sleep` in our 
@@ -47,7 +27,7 @@ class TaskManager(object):
     """
 
     def __init__(self, pool=None, logger=None):
-        """ Interface for managing tasks and running them in a Gevent Pool.
+        """Interface for managing tasks and running them in a Gevent Pool.
 
         Args:
             pool (:class:`gevent.pool.Pool`): the concurrency pool that all
@@ -76,8 +56,8 @@ class TaskManager(object):
         if size is not None:
             pool = TaskPool(size=size)
 
-        self._pool = pool
-        self._tasks = OrderedDict()
+        self._pool = pool            # type: TaskPool
+        self._tasks = OrderedDict()  # type: OrderedDict[str, Task]
         self.logger = logger or getLogger('%s.TaskManager' % __name__)
 
     def __repr__(self):
@@ -85,11 +65,10 @@ class TaskManager(object):
             len(self._tasks), self._pool.size)
 
     def __iter__(self):
-        for task in self._tasks.values():
-            yield task
+        yield from self._tasks.values()
 
     def task(self, _fn=None, **kwargs):
-        """ Register a method as a task via decorated function.
+        """Register a method as a task via decorated function.
 
         Can be used as a simple decorator, ::
 
@@ -122,7 +101,7 @@ class TaskManager(object):
             Callable of the underlying function.
         """
         def make_task(f, **kw):
-            name = kw.get('name', _convert_fn_name(f.__name__))
+            name = kw.get('name', convert_fn_name(f.__name__))
             logger = kw.get('logger', None)
             if logger is None:
                 logger = getLogger(self.logger.name + '.Task.%s' % name)
@@ -157,7 +136,7 @@ class TaskManager(object):
         return [t for t in self._tasks.keys()]
 
     def get(self, name):
-        """ Get a reference for a Task by its name.
+        """Get a reference for a Task by its name.
 
         Returns:
             :obj:`.Task` when ``name`` is registered, ``None`` otherwise.
@@ -165,8 +144,7 @@ class TaskManager(object):
         return self._tasks.get(name, None)
 
     def add(self, task, start=False):
-        # type: (Task, bool) -> Task
-        """ Add a task to the manager and optionally start executing it.
+        """Add a task to the manager and optionally start executing it.
 
         Args:
             task (:obj:`.Task`): instance of Task to track in our manager.
@@ -190,8 +168,7 @@ class TaskManager(object):
         return task
 
     def add_many(self, *tasks, start=False):
-        # type: (*Task, bool) -> None
-        """ Add many tasks to the manager.
+        """Add many tasks to the manager.
 
         Args:
             *tasks (:obj:`.Task`): variable amount of Tasks to track.
@@ -209,8 +186,7 @@ class TaskManager(object):
             self.add(task, start=start)
 
     def start(self, task_name):
-        # type: (str) -> None
-        """ Starts a registered Task by name.
+        """Starts a registered Task by name.
 
         Args:
              task_name (str): will start a task by name if it's currently
@@ -227,8 +203,7 @@ class TaskManager(object):
             t.start()
 
     def start_all(self):
-        # type: () -> None
-        """ Calls :func:`~start` on each Task being tracked.
+        """Calls :func:`~start` on each Task being tracked.
 
         Returns:
             None
@@ -237,7 +212,7 @@ class TaskManager(object):
             self.start(task)
 
     def stop(self, task_name, force=False):
-        """ Stop a registered task by name.
+        """Stop a registered task by name.
 
         Args:
             task_name (str): will stop a task by name if it's currently
@@ -256,7 +231,7 @@ class TaskManager(object):
             t.stop(force)
 
     def stop_all(self, force=False):
-        """ Calls :func:`~stop` on each Task being tracked.
+        """Calls :func:`~stop` on each Task being tracked.
 
         Args:
             force (bool): block the pool and event loop until each task
@@ -269,7 +244,7 @@ class TaskManager(object):
             self.stop(task, force)
 
     def remove_task(self, task, force=False):
-        """ Unregister a task from the manager by name or instance.
+        """Unregister a task from the manager by name or instance.
 
         Args:
             task (str or :obj:`.Task`): reference to a tracked Task.
@@ -289,7 +264,7 @@ class TaskManager(object):
         return t
 
     def remove_all(self, force=True):
-        """ Calls :func:`.remove_task` for each Task being tracked.
+        """Calls :func:`.remove_task` for each Task being tracked.
 
         Args:
             force (bool): calls :func:`.stop` with ``force`` before
@@ -303,15 +278,15 @@ class TaskManager(object):
         for task in self.task_names:
             yield self.remove_task(task, force)
 
-    def forever(self, *exceptions, stop_after_exc=True, stop_on_zero=True):
-        # type: (*Exception) -> bool
-        """ Blocks in an infinite loop after starting all registered tasks.
+    def forever(self, *exceptions, stop_after_exc=True, stop_on_zero=True,
+                polling=None):
+        """Blocks in an infinite loop after starting all registered tasks.
 
         The only way to break out is if one of the included ``exceptions``
         is raised while being executed in a running task.
 
         Note:
-            The loop will sleep for :attr:`.FOREVER_POOL_SECS` between
+            The loop will sleep for :attr:`.FOREVER_POLL_SECS` between
             checking Tasks for a failed state.
 
         Args:
@@ -324,33 +299,39 @@ class TaskManager(object):
                     and will fail "gracefully" instead of re-raising to
                     break the loop.
 
+        Keyword Args:
             stop_after_exc (bool): stop the loop after our first exception.
             stop_on_zero (bool): stop the loop if no tasks are running.
-
+            polling (float): overwrites :attr:`.FOREVER_POLL_SECS` if value
+                is not ``None``.
         Returns:
             bool: ``True`` if everything stopped gracefully,
                 otherwise ``False``.
-         """
-        e = None
+        """
+        e = None    # type: Exception
         if not exceptions:
             exceptions = (Exception,)
+        if polling is not None:
+            polling = max(0.005, polling)
+        else:
+            polling = self.FOREVER_POLL_SECS
         self.start_all()
         try:
             while True:
                 if stop_on_zero:
                     if self.pool.running == 0 and len(self._tasks) == 0:
                         raise RuntimeError('no tasks can run in pool')
-                for t in self:
-                    err = t._exc_info
+                for task in self:
+                    err = task.exception_info
                     if err:
                         if stop_after_exc:
                             exc_cls, exc_val, trace = err
                             self.logger.error(exc_val)
                             raise exc_cls(*exc_val.args)
-                        self.remove_task(t.name)
-                sleep(self.FOREVER_POLL_SECS)
+                        self.remove_task(task.name)
+                sleep(polling)
         except KeyboardInterrupt:
-            pass
+            self.logger.debug('keyboard interrupt')
         except exceptions as e:
             self.logger.exception(e, exc_info=True)
             raise e

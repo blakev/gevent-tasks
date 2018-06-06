@@ -4,18 +4,22 @@
 #     gevent-tasks, 2017
 # <<
 
-__author__ = 'Blake VandeMerwe'
-__version__ = '0.1.7'
-__license__ = 'MIT'
-__contact__ = 'blakev@null.net'
-__url__ = 'https://github.com/blakev/gevent-tasks'
+import logging
+
+from crontab import CronTab
 
 from gevent_tasks.manager import TaskManager
-from gevent_tasks.tasks import *
+from gevent_tasks.tasks import Task
+
+
+logger = logging.getLogger('gevent_tasks')
+logger.addHandler(logging.NullHandler())
+
+# alias
+cron = CronTab
 
 __all__ = [
     'Task',
     'TaskManager',
-    'TaskPool',
     'cron'
 ]
