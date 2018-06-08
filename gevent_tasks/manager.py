@@ -14,11 +14,11 @@ from gevent_tasks.tasks import Task
 from gevent_tasks.pool import TaskPool
 from gevent_tasks.utils import convert_fn_name
 
-__all__ = ['TaskManager']
+__all__ = ["TaskManager"]
 
 
 class TaskManager(object):
-    __slots__ = ('logger', '_pool', '_tasks',)
+    __slots__ = ("logger", "_pool", "_tasks")
 
     FOREVER_POLL_SECS = 0.5
     """float: number of seconds to :func:`gevent.sleep` in our 
@@ -48,6 +48,7 @@ class TaskManager(object):
 
         .. _greenlets: http://www.gevent.org/gevent.html#greenlet-objects
         """
+        # yapf: disable
         size = None
         if isinstance(pool, int):
             size = pool
@@ -58,11 +59,12 @@ class TaskManager(object):
 
         self._pool = pool            # type: TaskPool
         self._tasks = OrderedDict()  # type: OrderedDict[str, Task]
-        self.logger = logger or getLogger('%s.TaskManager' % __name__)
+        self.logger = logger or getLogger("%s.TaskManager" % __name__)
+        # yapf: enable
 
     def __repr__(self):
-        return '<TaskManager(tasks=%d,capacity=%d)>' % (
-            len(self._tasks), self._pool.size)
+        return "<TaskManager(tasks=%d,capacity=%d)>" % (len(self._tasks),
+                                                        self._pool.size)
 
     def __iter__(self):
         yield from self._tasks.values()
@@ -100,18 +102,19 @@ class TaskManager(object):
         Returns:
             Callable of the underlying function.
         """
+
         def make_task(f, **kw):
-            name = kw.get('name', convert_fn_name(f.__name__))
-            logger = kw.get('logger', None)
+            name = kw.get("name", convert_fn_name(f.__name__))
+            logger = kw.get("logger", None)
             if logger is None:
-                logger = getLogger(self.logger.name + '.Task.%s' % name)
+                logger = getLogger(self.logger.name + ".Task.%s" % name)
             kw.update({
-                'fn': f,
-                'name': name,
-                'manager': self,
-                'timeout': kw.get('timeout', 59.0),
-                'interval': kw.get('interval', 60.0),
-                'logger': logger
+                "fn": f,
+                "name": name,
+                "manager": self,
+                "timeout": kw.get("timeout", 59.0),
+                "interval": kw.get("interval", 60.0),
+                "logger": logger,
             })
             return Task(**kw)
 
@@ -123,6 +126,7 @@ class TaskManager(object):
             def inner(fn, **kwargs):
                 self.add(make_task(fn, **kwargs))
                 return fn
+
             return partial(inner, **kwargs)
 
     @property
@@ -198,9 +202,9 @@ class TaskManager(object):
         Raises:
             Nothing: will "fail" silently if a non-tracked name is given.
         """
-        t = self._tasks.get(task_name, None)
-        if t:
-            t.start()
+        task = self._tasks.get(task_name, None)
+        if task:
+            task.start()
 
     def start_all(self):
         """Calls :func:`~start` on each Task being tracked.
@@ -226,9 +230,9 @@ class TaskManager(object):
         Raises:
             Nothing: will "fail" silently if a non-tracked name is given.
         """
-        t = self._tasks.get(task_name, None)
-        if t:
-            t.stop(force)
+        task = self._tasks.get(task_name, None)
+        if task:
+            task.stop(force)
 
     def stop_all(self, force=False):
         """Calls :func:`~stop` on each Task being tracked.
@@ -254,14 +258,14 @@ class TaskManager(object):
         Returns:
             :obj:`Task` or ``None``
         """
-        if hasattr(task, 'name'):
+        if hasattr(task, "name"):
             name = task.name
         else:
             name = task
-        t = self._tasks.pop(name, None)
-        if t:
-            t.stop(force)
-        return t
+        task_ = self._tasks.pop(name, None)
+        if task_:
+            task_.stop(force)
+        return task_
 
     def remove_all(self, force=True):
         """Calls :func:`.remove_task` for each Task being tracked.
@@ -308,7 +312,7 @@ class TaskManager(object):
             bool: ``True`` if everything stopped gracefully,
                 otherwise ``False``.
         """
-        e = None    # type: Exception
+        e = None  # type: Exception
         if not exceptions:
             exceptions = (Exception,)
         if polling is not None:
@@ -320,7 +324,7 @@ class TaskManager(object):
             while True:
                 if stop_on_zero:
                     if self.pool.running == 0 and len(self._tasks) == 0:
-                        raise RuntimeError('no tasks can run in pool')
+                        raise RuntimeError("no tasks can run in pool")
                 for task in self:
                     err = task.exception_info
                     if err:
@@ -331,7 +335,7 @@ class TaskManager(object):
                         self.remove_task(task.name)
                 sleep(polling)
         except KeyboardInterrupt:
-            self.logger.debug('keyboard interrupt')
+            self.logger.debug("keyboard interrupt")
         except exceptions as e:
             self.logger.exception(e, exc_info=True)
             raise e
