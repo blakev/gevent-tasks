@@ -11,15 +11,10 @@ from crontab import CronTab
 from gevent_tasks.manager import TaskManager
 from gevent_tasks.tasks import Task
 
-
-logger = logging.getLogger('gevent_tasks')
+logger = logging.getLogger("gevent_tasks")
 logger.addHandler(logging.NullHandler())
 
 # alias
 cron = CronTab
 
-__all__ = [
-    'Task',
-    'TaskManager',
-    'cron'
-]
+__all__ = ["Task", "TaskManager", "cron"]

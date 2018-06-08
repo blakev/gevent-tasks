@@ -12,22 +12,37 @@ from datetime import timedelta
 import gevent
 from crontab import CronTab
 from gevent import Greenlet, Timeout
+from gevent.event import Event
 
 from gevent_tasks.timing import Timing
 from gevent_tasks.utils import gen_uuid
 
-__all__ = ['Task', 'NullTask']
+__all__ = ["Task", "NullTask"]
 
 
 class Task(object):
-    __slots__ = ('name', 'description', 'logger', 'pool', 'manager', 'timing',
-                 '_interval', '_fn', '_fn_arg', '_fn_kw', '_g', '_running',
-                 '_exc_info', '_last_value', '_schedule', '_timeout_secs',
-                 '_timeout_obj', '_no_self',)
 
-    def __init__(self, name, fn, args=None, kwargs=None,
-                 timeout=None, interval=None, description=None, logger=None,
-                 manager=None, pool=None, no_self=False, greedy=False):
+    """Base Task implementation."""
+
+    __slots__ = ("_event", "_exc_info", "_fn", "_fn_arg", "_fn_kw", "_g", "_interval",
+                 "_last_value", "_no_self", "_running", "_schedule", "_timeout_obj",
+                 "_timeout_secs", "description", "event", "logger", "manager", "name",
+                 "pool", "timing")
+
+    def __init__(self,
+                 name,
+                 fn,
+                 args=None,
+                 kwargs=None,
+                 timeout=None,
+                 interval=None,
+                 description=None,
+                 logger=None,
+                 manager=None,
+                 pool=None,
+                 no_self=False,
+                 greedy=False,
+                 event=None):
         """A Task represents a unit of work, run on a fixed interval,
          that can take place in the background of a gevent-based application.
 
@@ -42,7 +57,8 @@ class Task(object):
                 function can run indefinitely.
             interval (float or :obj:`.CronTab`): run ``fn`` every ``interval``
                 seconds for as long as the application is running. An instance
-                of :class:`crontab.CronTab` is also acceptable.
+                of :class:`crontab.CronTab` is also acceptable. When ``None``
+                the task is considered a "one off" and will only run one time.
             description (str): meta-data description for a Task instance.
             logger (:obj:`logging.Logger`): instance of a standard library
                 Logger.
@@ -55,7 +71,10 @@ class Task(object):
             greedy (bool): when ``True`` call ``fn`` immediately. This instance
                 will not run in the task pool and its results/exception will
                 not be tracked or handled.
+            event (:class:`~gevent.event.Event`): check ``is_set()`` before performing
+                the scheduled call. The underlying schedule will remain uninterrupted.
         """
+        # yapf: disable
         if timeout is None:
             timeout = -1
 
@@ -67,19 +86,20 @@ class Task(object):
 
         self.name = name                # type: str
         self.description = description  # type: str
-        self.logger = logger or getLogger('%s.Task.%s' % (__name__, self.name))
+        self.logger = logger or getLogger("%s.Task.%s" % (__name__, self.name))
         # ~~
-        self._fn = fn                    # type: Callable
-        self._fn_arg = args              # type: tuple
-        self._fn_kw = kwargs             # type: dict
-        self._g = None                   # type: Greenlet
-        self._running = False            # type: bool
-        self._exc_info = None            # type: tuple
-        self._last_value = None          # type: Any
-        self._no_self = no_self
-        self._schedule = False           # type: bool
-        self._timeout_secs = timeout     # type: float
-        self._timeout_obj = None         # type: Timeout
+        self._fn = fn                   # type: Callable
+        self._fn_arg = args             # type: tuple
+        self._fn_kw = kwargs            # type: dict
+        self._g = None                  # type: Greenlet
+        self._running = False           # type: bool
+        self._exc_info = None           # type: tuple
+        self._last_value = None         # type: Any
+        self._no_self = no_self         # type: bool
+        self._schedule = False          # type: bool
+        self._timeout_secs = timeout    # type: float
+        self._timeout_obj = None        # type: Timeout
+        self._event = event             # type: Event
         # ~~ back references
         self.pool = pool                 # type: TaskPool
         self.manager = manager           # type: TaskManager
@@ -87,57 +107,70 @@ class Task(object):
         # ~~ delayed parsing
         self._interval = self.parse_interval(interval)
 
-        if greedy:
-            self.logger.debug('performing greedy run')
-            g = self.__make()
+        if self._event is None:
+            self._event = Event()
+            self._event.set()
+
+        if greedy and self._event.is_set():
+            self.logger.debug("performing greedy run")
+            g = self.__make(is_greedy=True)
             g.start()
+        # yapf: enable
 
     def __repr__(self):
-        return '<Task(name=%s,runs=%d,runtime=%0.2f)>' % (
-            self.name, self.timing.count, self.timing.total)
+        return "<Task(name=%s,runs=%d,runtime=%0.2f)>" % (self.name, self.timing.count,
+                                                          self.timing.total)
 
-    def __make(self):
+    def __make(self, is_greedy=False):
         # type: () -> Greenlet
         if self._no_self:
             g = Greenlet(self._fn, *self._fn_arg, **self._fn_kw)
         else:
             g = Greenlet(self._fn, self, *self._fn_arg, **self._fn_kw)
-        g.link_value(self.__callback)
-        g.link_exception(self.__err_callback)
+        if not is_greedy:
+            # normal scenario
+            g.link_value(self.__callback)
+            g.link_exception(self.__err_callback)
         return g
 
     def __callback(self, g):
         # type: (Greenlet) -> None
-        if g and hasattr(g, 'value'):
+        if g and hasattr(g, "value"):
             self._last_value = g.value
         duration = time.time() - self.timing.started
-        if self._timeout_secs and self._timeout_obj and \
-                self._timeout_obj.pending:
-            self.logger.debug('canceling timeout')
+        if self._timeout_secs and self._timeout_obj and self._timeout_obj.pending:
+            self.logger.debug("canceling timeout")
             self._timeout_obj.cancel()
         # reset the Greenlet
         self._g = None
         self._running = False
         self.timing.log(duration)
         if self.is_oneoff:
-            self.logger.debug('will not schedule task to re-run')
+            self.logger.debug("will not schedule task to re-run")
         elif self.is_periodic and self._schedule:
             if isinstance(self._interval, CronTab):
-                when = self._interval.next()
+                when = self._interval.next(default_utc=True)
             else:
                 when = max(0, self._interval - duration)
             gevent.spawn_later(when, self.start)
-            self.logger.debug('scheduled to run in %0.2f', when)
+            self.logger.debug("scheduled to run in %0.2f", when)
 
     def __err_callback(self, g):
         # type: (Greenlet) -> None
         self._running = None
         self._exc_info = g.exc_info
-        self.logger.error('raised an exception')
+        self.logger.error("raised an exception")
+
+    @property
+    def ident(self):
+        """int: A small, unique integer that identifies this greenlet."""
+        if self._g:
+            return self._g.minimal_ident
+        return None
 
     @property
     def value(self):
-        """Any: Stores the previous run's value. """
+        """Any: Stores the previous run's value."""
         return self._last_value
 
     @property
@@ -176,7 +209,7 @@ class Task(object):
         elif isinstance(i, CronTab):
             return i
         else:
-            raise ValueError('cannot use interval of type %s' % type(i))
+            raise ValueError("cannot use interval of type %s" % type(i))
 
     def fork(self, name=None):
         """Fork the current task to create a duplicate running under
@@ -194,14 +227,13 @@ class Task(object):
             Task
         """
         if not self.manager:
-            raise ValueError('cannot fork task without manager')
+            raise ValueError("cannot fork task without manager")
 
         if name is None:
-            name = '%sFork-%s' % (self.name, gen_uuid())
+            name = "%sFork-%s" % (self.name, gen_uuid())
 
         if name in self.manager.task_names:
-            raise ValueError(
-                'cannot create a task with duplicate name %s' % name)
+            raise ValueError("cannot create a task with duplicate name %s" % name)
 
         kwargs = dict(
             name=name,
@@ -220,7 +252,7 @@ class Task(object):
         # ensure the task was added to the manager
         task = self.manager.get(name)
         if task is None:
-            raise RuntimeError('could not add forked task to manager')
+            raise RuntimeError("could not add forked task to manager")
         # start running the task, and return for inspection
         task.start()
         return task
@@ -242,13 +274,19 @@ class Task(object):
             None
         """
         if self.running:
-            self.logger.warning('task is already running')
+            self.logger.warning("task is already running")
         elif self._g:
-            self.logger.error('task has already claimed Greenlet')
+            self.logger.error("task has already claimed Greenlet")
         else:
             self._schedule = True
         # do not schedule this task to run
         if not self._schedule:
+            self.logger.debug('task is not being scheduled to run')
+            return
+
+        if not self._event.is_set():
+            self.logger.debug('skipping task run, event is not set')
+            self.__callback(None)
             return
 
         # handle a potential timeout
@@ -256,8 +294,7 @@ class Task(object):
             self._timeout_obj.cancel()
             self._timeout_obj = None
         if self._timeout_secs > 0:
-            self._timeout_obj = Timeout.start_new(self._timeout_secs,
-                                                  TimeoutError)
+            self._timeout_obj = Timeout.start_new(self._timeout_secs, TimeoutError)
         try:
             self._g = self.__make()
             self.timing.start()
@@ -279,6 +316,10 @@ class Task(object):
 
         Returns:
             None
+
+        Warnings:
+            If the code executing is not exception safe (e.g., makes proper use of
+            finally) then an unexpected exception could result in corrupted state.
         """
         if self.running is None and self._exc_info is not None:
             self._g.kill(self._exc_info[1], block=False)
@@ -309,18 +350,20 @@ class Task(object):
         return not self.is_periodic
 
 
-def NullTask(**kwargs):
-    """Task factory that produces zero-cost instances, useful for debugging.
+class NullTask(Task):
+
+    """Task class that produces zero-cost instances, useful for debugging.
 
     Returns:
         :obj:`.Task`: Task instance.
     """
+
+    def __init__(self, **kwargs):
+        kwargs.update(
+            dict(description="DOES NOTHING", args=None, kwargs=None, no_self=True))
+        super().__init__("NullTask", NullTask.null_fn, **kwargs)
+
+    @staticmethod
     def null_fn():
         """NO OP null function for filler task."""
         return True
-    kwargs.update(dict(
-        description="DOES NOTHING",
-        args=None,
-        kwargs=None,
-        no_self=True))
-    return Task('NullTask', null_fn, **kwargs)

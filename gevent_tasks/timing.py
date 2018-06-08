@@ -11,7 +11,7 @@ import time
 
 
 class Timing(object):
-    __slots__ = ('name', '_first_start', '_run_times', '_started',)
+    __slots__ = ("name", "_first_start", "_run_times", "_started")
 
     def __init__(self, task_name=None):
         """Instance inside of Task object tracks running times of that task.
@@ -21,18 +21,18 @@ class Timing(object):
                 an instance is created inside of a :obj:`.Task`.
 
         """
-        self._first_start = 0   # type: float
-        self._started = 0       # type: float
-        self._run_times = []    # type: List[float]
-        self.name = task_name or ''
+        self._first_start = 0  # type: float
+        self._started = 0  # type: float
+        self._run_times = []  # type: List[float]
+        self.name = task_name or ""
 
     def __iter__(self):
         yield from self.history()
 
     def __repr__(self):
-        return '<Timing(%scount=%d,started=%0.2f,last=%0.4f)>' % (
-            ('name=%s,' % self.name) if self.name else '',
-            self.count, self.started, self.last)
+        return "<Timing(%scount=%d,started=%0.2f,last=%0.4f)>" % (
+            ("name=%s," % self.name)
+            if self.name else "", self.count, self.started, self.last)
 
     def log(self, timing):
         """Mark a new finished time for the current task.
@@ -61,8 +61,8 @@ class Timing(object):
         Yields:
             float: the next timing recorded.
         """
-        for o in self.run_timings:
-            yield o
+        for timing in self.run_timings:
+            yield timing
 
     @property
     def started(self):

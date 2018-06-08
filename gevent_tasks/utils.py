@@ -10,7 +10,7 @@ import random
 import string
 
 CHARS = string.ascii_letters + string.digits
-UNDER_RE = re.compile(r'(_+[\w|\d])', re.I)
+UNDER_RE = re.compile(r"(_+[\w|\d])", re.I)
 
 
 def gen_uuid(length=4):
@@ -33,7 +33,7 @@ def gen_uuid(length=4):
     """
     if not length or length < 1:
         length = 1
-    return ''.join(map(lambda c: random.choice(CHARS), range(length)))
+    return "".join(map(lambda c: random.choice(CHARS), range(length)))
 
 
 def convert_fn_name(name):
@@ -55,9 +55,9 @@ def convert_fn_name(name):
         Function
     """
     if not name:
-        return 'Function'
+        return "Function"
     name = name[0].upper() + name[1:]
     for c in UNDER_RE.findall(name):
-        x = c.strip('_').upper()
+        x = c.strip("_").upper()
         name = name.replace(c, x)
     return name

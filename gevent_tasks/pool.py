@@ -10,7 +10,7 @@
 from gevent import Greenlet
 from gevent.pool import Pool
 
-__all__ = ['TaskPool']
+__all__ = ["TaskPool"]
 
 
 class TaskPool(Pool):
@@ -30,14 +30,13 @@ class TaskPool(Pool):
                 concurrent tasks that can be run at the same time. When
                 ``size`` is None there is no hard-limit for the number
                 of greenlets that can run at once.
-
         """
         if size is not None:
             size = max(2, size)
         super(TaskPool, self).__init__(size, Greenlet)
 
     def __repr__(self):
-        return '<TaskPool(size=%d,running=%d,capacity=%0.1f%%)>' % (
+        return "<TaskPool(size=%d,running=%d,capacity=%0.1f%%)>" % (
             self.size, self.running, self.capacity)
 
     @property
@@ -47,6 +46,5 @@ class TaskPool(Pool):
 
     @property
     def capacity(self):
-        # type: () -> float
         """float: The current capacity of pool; how full as a percentage."""
         return (1 - (self.free_count() / float(self.size))) * 100
