@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "gevent-tasks"
-version = "0.2.0"
+version = "0.3.0"
 license = "MIT"
 readme = "README.md"
 description = "Background task management using gevent and green threads."
