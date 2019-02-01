@@ -8,8 +8,8 @@ from logging import getLogger
 from functools import partial
 from collections import OrderedDict
 
-from gevent import sleep
-
+import gevent
+from gevent_tasks.errors import ForeverRuntimeError, TaskKeyError
 from gevent_tasks.tasks import Task
 from gevent_tasks.pool import TaskPool
 from gevent_tasks.utils import convert_fn_name
@@ -20,17 +20,20 @@ __all__ = ["TaskManager"]
 class TaskManager(object):
     __slots__ = ("logger", "_pool", "_tasks")
 
-    FOREVER_POLL_SECS = 0.5
+    FOREVER_POLL_SECS = 0.1
     """float: number of seconds to :func:`gevent.sleep` in our 
     :func:`~gevent_tasks.manager.TaskManager.forever` block between 
     looking for failed tasks.
     """
 
-    def __init__(self, pool=None, logger=None):
+    def __init__(self, pool_size=TaskPool.DEFAULT_POOL_SIZE, pool_cls=None, logger=None):
         """Interface for managing tasks and running them in a Gevent Pool.
 
         Args:
-            pool (:class:`gevent.pool.Pool`): the concurrency pool that all
+            pool_size (int): maximum concurrent gevents to use in a
+                :class:`gevent_tasks.pool.TaskPool`.
+
+            pool_cls (:class:`gevent.pool.Pool`): the concurrency pool that all
                 of our underlying periodic tasks will run in. This is
                 important to remember since our pool can only process
                 its defined size of threads at one time. Tasks that block
@@ -38,7 +41,7 @@ class TaskManager(object):
                 and fall into an undefined state.
 
                 The recommended pool to use is
-                :obj:`gevent_tasks.tasks.TaskPool` which has helper methods
+                :obj:`gevent_tasks.pool.TaskPool` which has helper methods
                 with information about the current run state of its
                 greenlets_.
 
@@ -49,22 +52,19 @@ class TaskManager(object):
         .. _greenlets: http://www.gevent.org/gevent.html#greenlet-objects
         """
         # yapf: disable
-        size = None
-        if isinstance(pool, int):
-            size = pool
-        if pool is None:
-            size = TaskPool.DEFAULT_POOL_SIZE
-        if size is not None:
-            pool = TaskPool(size=size)
-
+        if pool_size < 2:
+            pool_size = 2
+        if pool_cls and callable(pool_cls) and pool_size:
+            pool = pool_cls(pool_size)
+        else:  # pool_cls is None:
+            pool = TaskPool(size=pool_size)
         self._pool = pool            # type: TaskPool
         self._tasks = OrderedDict()  # type: OrderedDict[str, Task]
         self.logger = logger or getLogger("%s.TaskManager" % __name__)
         # yapf: enable
 
     def __repr__(self):
-        return "<TaskManager(tasks=%d,capacity=%d)>" % (len(self._tasks),
-                                                        self._pool.size)
+        return "<TaskManager(tasks=%d, capacity=%d)>" % (len(self._tasks), self._pool.size)
 
     def __iter__(self):
         yield from self._tasks.values()
@@ -163,7 +163,7 @@ class TaskManager(object):
             ``task``
         """
         if task.name in self._tasks:
-            raise KeyError(task.name)
+            raise TaskKeyError(task.name)
         if task.pool is None:
             task.pool = self._pool
         self._tasks[task.name] = task
@@ -282,8 +282,7 @@ class TaskManager(object):
         for task in self.task_names:
             yield self.remove_task(task, force)
 
-    def forever(self, *exceptions, stop_after_exc=True, stop_on_zero=True,
-                polling=None):
+    def forever(self, *exceptions, stop_after_exc=True, stop_on_zero=True, polling=None):
         """Blocks in an infinite loop after starting all registered tasks.
 
         The only way to break out is if one of the included ``exceptions``
@@ -294,6 +293,10 @@ class TaskManager(object):
             checking Tasks for a failed state.
 
         Args:
+            stop_after_exc (bool): stop the loop after our first exception.
+            stop_on_zero (bool): stop the loop if no tasks are running.
+            polling (float): overwrites :attr:`.FOREVER_POLL_SECS` if value
+                is not ``None``.
             *exceptions (Exception): variable number of Exception classes
                 to raise if an error occurs in a Task. This will break the
                 Forever loop and effectively stop our TaskPool.
@@ -303,18 +306,12 @@ class TaskManager(object):
                     and will fail "gracefully" instead of re-raising to
                     break the loop.
 
-        Keyword Args:
-            stop_after_exc (bool): stop the loop after our first exception.
-            stop_on_zero (bool): stop the loop if no tasks are running.
-            polling (float): overwrites :attr:`.FOREVER_POLL_SECS` if value
-                is not ``None``.
         Returns:
-            bool: ``True`` if everything stopped gracefully,
-                otherwise ``False``.
+            bool: ``True`` if everything stopped gracefully, otherwise ``False``.
         """
         e = None  # type: Exception
         if not exceptions:
-            exceptions = (Exception,)
+            exceptions = (ForeverRuntimeError,)
         if polling is not None:
             polling = max(0.005, polling)
         else:
@@ -324,20 +321,18 @@ class TaskManager(object):
             while True:
                 if stop_on_zero:
                     if self.pool.running == 0 and len(self._tasks) == 0:
-                        raise RuntimeError("no tasks can run in pool")
+                        raise ForeverRuntimeError("no tasks left to run in pool")
                 for task in self:
                     err = task.exception_info
                     if err:
                         if stop_after_exc:
                             exc_cls, exc_val, trace = err
                             self.logger.error(exc_val)
-                            raise exc_cls(*exc_val.args)
+                            raise ForeverRuntimeError(*exc_val.args) from exc_cls
                         self.remove_task(task.name)
-                sleep(polling)
+                gevent.sleep(polling)
         except KeyboardInterrupt:
             self.logger.debug("keyboard interrupt")
         except exceptions as e:
             self.logger.exception(e, exc_info=True)
             raise e
-        finally:
-            return e is None

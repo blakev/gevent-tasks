@@ -36,12 +36,19 @@ Utility Functions
 .. automodule:: gevent_tasks.utils
    :members:
 
+Errors
+------
+
+.. automodule:: gevent_tasks.errors
+   :members:
+
+
 License
 -------
 
    MIT License
 
-   Copyright (c) 2017 Blake VandeMerwe
+   Copyright (c) 2017-2019 Blake VandeMerwe
 
    Permission is hereby granted, free of charge, to any person obtaining a copy
    of this software and associated documentation files (the "Software"), to deal

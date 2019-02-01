@@ -14,6 +14,7 @@ from crontab import CronTab
 from gevent import Greenlet, Timeout
 from gevent.event import Event
 
+from gevent_tasks.errors import TaskKeyError, TaskRuntimeError
 from gevent_tasks.timing import Timing
 from gevent_tasks.utils import gen_uuid
 
@@ -26,8 +27,8 @@ class Task(object):
 
     __slots__ = ("_event", "_exc_info", "_fn", "_fn_arg", "_fn_kw", "_g", "_interval",
                  "_last_value", "_no_self", "_running", "_schedule", "_timeout_obj",
-                 "_timeout_secs", "description", "event", "logger", "manager", "name",
-                 "pool", "timing")
+                 "_timeout_secs", "description", "event", "logger", "manager", "name", "pool",
+                 "timing")
 
     def __init__(self,
                  name,
@@ -118,11 +119,11 @@ class Task(object):
         # yapf: enable
 
     def __repr__(self):
-        return "<Task(name=%s,runs=%d,runtime=%0.2f)>" % (self.name, self.timing.count,
-                                                          self.timing.total)
+        return "<Task(name=%s, runs=%d, runtime=%0.2f)>" % (self.name, self.timing.count,
+                                                            self.timing.total)
 
     def __make(self, is_greedy=False):
-        # type: () -> Greenlet
+        # type: (bool) -> Greenlet
         if self._no_self:
             g = Greenlet(self._fn, *self._fn_arg, **self._fn_kw)
         else:
@@ -137,7 +138,7 @@ class Task(object):
         # type: (Greenlet) -> None
         if g and hasattr(g, "value"):
             self._last_value = g.value
-        duration = time.time() - self.timing.started
+        duration = time.monotonic() - self.timing.started
         if self._timeout_secs and self._timeout_obj and self._timeout_obj.pending:
             self.logger.debug("canceling timeout")
             self._timeout_obj.cancel()
@@ -167,6 +168,8 @@ class Task(object):
         if self._g:
             return self._g.minimal_ident
         return None
+
+    id = ident  # alias
 
     @property
     def value(self):
@@ -209,7 +212,7 @@ class Task(object):
         elif isinstance(i, CronTab):
             return i
         else:
-            raise ValueError("cannot use interval of type %s" % type(i))
+            raise TaskRuntimeError("cannot use interval of type %s" % type(i))
 
     def fork(self, name=None):
         """Fork the current task to create a duplicate running under
@@ -227,13 +230,13 @@ class Task(object):
             Task
         """
         if not self.manager:
-            raise ValueError("cannot fork task without manager")
+            raise TaskRuntimeError("cannot fork task without manager")
 
         if name is None:
             name = "%sFork-%s" % (self.name, gen_uuid())
 
         if name in self.manager.task_names:
-            raise ValueError("cannot create a task with duplicate name %s" % name)
+            raise TaskKeyError("cannot create a task with duplicate name %s" % name)
 
         kwargs = dict(
             name=name,
@@ -252,7 +255,7 @@ class Task(object):
         # ensure the task was added to the manager
         task = self.manager.get(name)
         if task is None:
-            raise RuntimeError("could not add forked task to manager")
+            raise TaskRuntimeError("could not add forked task to manager")
         # start running the task, and return for inspection
         task.start()
         return task
@@ -305,7 +308,7 @@ class Task(object):
             self.__callback(self._g)
         except Exception as e:
             self.logger.exception(e, exc_info=True)
-            raise e
+            raise TaskRuntimeError from e
 
     def stop(self, force=False):
         """Stop the periodic task.
@@ -359,8 +362,7 @@ class NullTask(Task):
     """
 
     def __init__(self, **kwargs):
-        kwargs.update(
-            dict(description="DOES NOTHING", args=None, kwargs=None, no_self=True))
+        kwargs.update(dict(description="DOES NOTHING", args=None, kwargs=None, no_self=True))
         super().__init__("NullTask", NullTask.null_fn, **kwargs)
 
     @staticmethod

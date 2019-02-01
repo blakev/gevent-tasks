@@ -2,16 +2,43 @@
 # -*- coding: utf-8 -*-
 #
 # >>
-#   Copyright 2018 Vivint, inc.
-#
 #   gevent-tasks, 2018
 # <<
 
 import time
+import random
+from array import array
+
+
+class ArrayDeque:
+
+    """Light deque using a typed array with floats."""
+
+    def __init__(self, maxlen, type_code='f'):
+        self._maxlen = max(2, maxlen)
+        self._col = array(type_code)
+
+    def __getitem__(self, item):
+        return self._col[item]
+
+    def __iter__(self):
+        yield from self._col
+
+    def __len__(self):
+        return len(self._col)
+
+    def append(self, o):
+        if len(self) == self._maxlen:
+            # simple randomization for more structured averages
+            self._col.pop(random.randint(0, int(self._maxlen / 4)))
+        self._col.append(o)
 
 
 class Timing(object):
-    __slots__ = ("name", "_first_start", "_run_times", "_started")
+    __slots__ = ("name", "_first_start", "_run_times", "_started", '_counter', '_total_time')
+
+    MAX_RUN_TIMES = 1024
+    "int: keep this many run times to compute averages."
 
     def __init__(self, task_name=None):
         """Instance inside of Task object tracks running times of that task.
@@ -19,20 +46,45 @@ class Timing(object):
         Args:
             task_name (str, optional): this is filled in automatically when
                 an instance is created inside of a :obj:`.Task`.
-
         """
-        self._first_start = 0  # type: float
-        self._started = 0  # type: float
-        self._run_times = []  # type: List[float]
+        self._counter = 0
+        self._started = 0.0
+        self._total_time = 0.0
+        self._first_start = 0.0
+        self._run_times = ArrayDeque(Timing.MAX_RUN_TIMES)
         self.name = task_name or ""
 
     def __iter__(self):
-        yield from self.history()
+        yield from self.run_timings
 
     def __repr__(self):
-        return "<Timing(%scount=%d,started=%0.2f,last=%0.4f)>" % (
-            ("name=%s," % self.name)
-            if self.name else "", self.count, self.started, self.last)
+        return "<Timing(count=%d, started=%0.2f, total=%0.3fs, last=%0.3fs)>" % (
+            self.count, self.started, self.total, self.last)
+
+    def as_dict(self, include_raw=True):
+        """Return the timing information as a dictionary.
+
+        Args:
+            include_raw (bool): include a copy of the raw timings along side
+                the summary values.
+
+        Returns:
+            dict
+        """
+        if include_raw:
+            resp = {'raw': list(self)}
+        else:
+            resp = {'last': self.last}
+        resp.update({
+            'start': self.started,
+            'first_started': self.first_started,
+            'count': self.count,
+            'average_time': self.average,
+            'total_time': self.total,
+            'best_time': self.best,
+            'worst_time': self.worst
+        })
+        return resp
 
     def log(self, timing):
         """Mark a new finished time for the current task.
@@ -44,6 +96,8 @@ class Timing(object):
             None
         """
         self._run_times.append(timing)
+        self._total_time += timing
+        self._counter += 1
 
     def start(self):
         """Mark a new start time for the current task.
@@ -51,18 +105,9 @@ class Timing(object):
         Returns:
             None
         """
-        self._started = time.time()
-        if self._first_start == 0:
-            self._first_start = self._started
-
-    def history(self):
-        """Iterate over all the saved timings.
-
-        Yields:
-            float: the next timing recorded.
-        """
-        for timing in self.run_timings:
-            yield timing
+        if not self._first_start:
+            self._first_start = time.time()
+        self._started = time.monotonic()
 
     @property
     def started(self):
@@ -76,22 +121,18 @@ class Timing(object):
 
     @property
     def run_timings(self):
-        """:obj:`list` of obj:`floats`: read-only access to the log of recorded
-        run timings.
-        """
-        if not self._run_times:
-            return [0]
-        return self._run_times
+        """List[float]: read-only access to the log of recorded run timings."""
+        return self._run_times if self._run_times else [-1.0]
 
     @property
     def average(self):
         """float: Total runtime divided by the successful runs count. """
-        return self.total / max(1, self.count)
+        return self.total / max(1, self.count) if self.count > 0 else 0.0
 
     @property
     def count(self):
         """int: Total successful runs of a given task. """
-        return len(self.run_timings)
+        return self._counter
 
     @property
     def last(self):
@@ -101,7 +142,7 @@ class Timing(object):
     @property
     def total(self):
         """float: Total runtime, so far, of all task runs. """
-        return sum(self.run_timings)
+        return self._total_time
 
     @property
     def best(self):
