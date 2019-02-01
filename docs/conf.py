@@ -65,7 +65,7 @@ master_doc = 'index'
 
 # General information about the project.
 project = 'gevent-tasks'
-copyright = '2017, Blake VandeMerwe'
+copyright = '2019, Blake VandeMerwe'
 author = 'Blake VandeMerwe'
 
 # The version info for the project you're documenting, acts as replacement for
