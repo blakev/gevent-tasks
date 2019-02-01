@@ -7,20 +7,20 @@ description = "Background task management using gevent and green threads."
 authors = ["Blake VandeMerwe <blakev@null.net>"]
 homepage = "https://github.com/blakev/gevent-tasks"
 documentation = "http://gevent-tasks.readthedocs.io/en/latest/"
-keywords = ["gevent", "background", "bg", "tasks", "worker"]
+keywords = ["gevent", "background", "bg", "tasks", "worker", "threading", "thread"]
 classifiers = [
     'Topic :: Software Development :: Libraries',
     'License :: OSI Approved :: MIT License',
     'Intended Audience :: Developers',
     'Development Status :: 4 - Beta',
-    'Programming Language :: Python'
+    'Programming Language :: Python',
+    'Programming Language :: Python 3'
 ]
 
 [tool.poetry.dependencies]
-python = "^3.5"
-crontab = "^0.22.1"
-gevent = "^1.3"
+python = "^3.6"
+crontab = "^0.22.4"
+gevent = "^1.4.0"
 
 [tool.poetry.dev-dependencies]
-pytest = "^3.0"
 yapf = "^0.22.0"

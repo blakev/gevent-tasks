@@ -2,8 +2,6 @@
 # -*- coding: utf-8 -*-
 #
 # >>
-#   Copyright 2018 Vivint, inc.
-#
 #   gevent-tasks, 2018
 # <<
 
@@ -36,8 +34,8 @@ class TaskPool(Pool):
         super(TaskPool, self).__init__(size, Greenlet)
 
     def __repr__(self):
-        return "<TaskPool(size=%d,running=%d,capacity=%0.1f%%)>" % (
-            self.size, self.running, self.capacity)
+        return "<TaskPool(size=%d, running=%d, capacity=%0.1f%%)>" % (self.size, self.running,
+                                                                      self.capacity)
 
     @property
     def running(self):
