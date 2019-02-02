@@ -44,8 +44,8 @@ class Task(object):
                  no_self=False,
                  greedy=False,
                  event=None):
-        """A Task represents a unit of work, run on a fixed interval,
-         that can take place in the background of a gevent-based application.
+        """A Task represents a unit of work, run on a fixed interval, that can take place in the
+        background of a gevent-based application.
 
         Args:
             name (str): the name of the Task. Used for reference in a Manager,
@@ -215,9 +215,9 @@ class Task(object):
             raise TaskRuntimeError("cannot use interval of type %s" % type(i))
 
     def fork(self, name=None):
-        """Fork the current task to create a duplicate running under
-            the same TaskManager. This instance will also be tracked and
-            receive the same checks as if it were registered initially.
+        """Fork the current task to create a duplicate running under the same TaskManager. This
+        instance will also be tracked and receive the same checks as if it were registered
+        initially.
 
         Args:
             name (str): ``name`` of the new Task.
@@ -333,6 +333,16 @@ class Task(object):
         self._schedule = False
         self.__callback(self._g)
 
+    def abort(self):
+        """Alias for force stopping a running Task."""
+        self.stop(force=True)
+
+    def done(self):
+        """Signals that this task should not be rescheduled after its current run. This method
+        should be called inside the Task's function body."""
+        self.logger.debug('un-scheduling task from future iterations')
+        self._schedule = False
+
     @property
     def running(self):
         """bool: if the current task is running or stopped."""
@@ -341,6 +351,11 @@ class Task(object):
         if self._g.dead or self._g.exception is not None:
             return False
         return self._g.started or self._running
+
+    @property
+    def scheduled(self):
+        """bool: the task is running or scheduled to run next iteration."""
+        return self._schedule or self.running
 
     @property
     def is_periodic(self):

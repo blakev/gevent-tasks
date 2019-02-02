@@ -6,6 +6,7 @@
 
 from logging import getLogger
 from functools import partial
+from operator import attrgetter
 from collections import OrderedDict
 
 import gevent
@@ -309,19 +310,22 @@ class TaskManager(object):
         Returns:
             bool: ``True`` if everything stopped gracefully, otherwise ``False``.
         """
-        e = None  # type: Exception
         if not exceptions:
             exceptions = (ForeverRuntimeError,)
         if polling is not None:
             polling = max(0.005, polling)
         else:
             polling = self.FOREVER_POLL_SECS
+        sheduled_attr = attrgetter('scheduled')
         self.start_all()
         try:
             while True:
                 if stop_on_zero:
                     if self.pool.running == 0 and len(self._tasks) == 0:
                         raise ForeverRuntimeError("no tasks left to run in pool")
+                    if not any(map(sheduled_attr, self)):
+                        self.logger.debug('stop_on_zero=True, no tasks scheduled')
+                        break
                 for task in self:
                     err = task.exception_info
                     if err:
@@ -336,3 +340,5 @@ class TaskManager(object):
         except exceptions as e:
             self.logger.exception(e, exc_info=True)
             raise e
+        else:
+            self._pool.join()
