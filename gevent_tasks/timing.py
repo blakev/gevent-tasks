@@ -97,7 +97,6 @@ class Timing(object):
         """
         self._run_times.append(timing)
         self._total_time += timing
-        self._counter += 1
 
     def start(self):
         """Mark a new start time for the current task.
@@ -108,6 +107,7 @@ class Timing(object):
         if not self._first_start:
             self._first_start = time.time()
         self._started = time.monotonic()
+        self._counter += 1
 
     @property
     def started(self):
