@@ -7,6 +7,7 @@
 
 import time
 import random
+from math import ceil
 from array import array
 
 
@@ -14,8 +15,10 @@ class ArrayDeque:
 
     """Light deque using a typed array with floats."""
 
+    __slots__ = ("_col", "_len")
+
     def __init__(self, maxlen, type_code='f'):
-        self._maxlen = max(2, maxlen)
+        self._len = max(2, maxlen)
         self._col = array(type_code)
 
     def __getitem__(self, item):
@@ -27,14 +30,22 @@ class ArrayDeque:
     def __len__(self):
         return len(self._col)
 
+    @property
+    def size(self):
+        """int: returns the max length of the underlying array."""
+        return self._len
+
     def append(self, o):
-        if len(self) == self._maxlen:
+        if len(self) == self._len:
             # simple randomization for more structured averages
-            self._col.pop(random.randint(0, int(self._maxlen / 4)))
+            self._col.pop(random.randint(1, int(ceil(self._len / 4.0))))
         self._col.append(o)
 
 
 class Timing(object):
+
+    """Base timing object to track per-Task statistics."""
+
     __slots__ = ("name", "_first_start", "_run_times", "_started", '_counter', '_total_time')
 
     MAX_RUN_TIMES = 1024
