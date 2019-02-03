@@ -134,14 +134,16 @@ class Task(object):
             g.link_exception(self.__err_callback)
         return g
 
-    def __callback(self, g):
-        # type: (Greenlet) -> None
+    def __callback(self, g, stats_only=False):
+        # type: (Greenlet, bool) -> None
         if g and hasattr(g, "value"):
             self._last_value = g.value
         duration = time.monotonic() - self.timing.started
         if self._timeout_secs and self._timeout_obj and self._timeout_obj.pending:
             self.logger.debug("canceling timeout")
             self._timeout_obj.cancel()
+        if stats_only:
+            return
         # reset the Greenlet
         self._g = None
         self._running = False
@@ -323,18 +325,24 @@ class Task(object):
         Warnings:
             If the code executing is not exception safe (e.g., makes proper use of
             finally) then an unexpected exception could result in corrupted state.
+
+            Because of Greenlet scheduling starting/stopping a task via the Manager may
+            have unintended consequences. There is no guarantee of atomic task runs depending
+            on the underlying scheduler and event loop.
         """
-        if self.running is None and self._exc_info is not None:
-            self._g.kill(self._exc_info[1], block=False)
-        if self.running and self._g is not None:
-            self._g.unlink(self.__callback)
-            if force:
-                self._g.kill(block=True, timeout=self._timeout_secs)
         self._schedule = False
-        self.__callback(self._g)
+        self._running = False
+        if self._exc_info is not None:
+            self._g.kill(self._exc_info[1], block=False)
+        elif self.running and self._g is not None:
+            self._g.unlink(self.__callback)
+        self.__callback(self._g, stats_only=True)
+        self._g.kill(block=True, timeout=self._timeout_secs)
 
     def abort(self):
-        """Alias for force stopping a running Task."""
+        """Force stop and remove task from manager, cancels all future runs without manually
+        re-adding the task."""
+        self.manager.remove_task(self)
         self.stop(force=True)
 
     def done(self):

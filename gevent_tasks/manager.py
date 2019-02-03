@@ -11,8 +11,9 @@ from collections import OrderedDict
 
 import gevent
 from gevent_tasks.errors import ForeverRuntimeError, TaskKeyError
-from gevent_tasks.tasks import Task
 from gevent_tasks.pool import TaskPool
+from gevent_tasks.tasks import Task
+from gevent_tasks.timing import Timing
 from gevent_tasks.utils import convert_fn_name
 
 __all__ = ["TaskManager"]
@@ -27,7 +28,11 @@ class TaskManager(object):
     looking for failed tasks.
     """
 
-    def __init__(self, pool_size=TaskPool.DEFAULT_POOL_SIZE, pool_cls=None, logger=None):
+    def __init__(self,
+                 pool_size=TaskPool.DEFAULT_POOL_SIZE,
+                 pool_cls=None,
+                 max_task_timings=Timing.MAX_RUN_TIMES,
+                 logger=None):
         """Interface for managing tasks and running them in a Gevent Pool.
 
         Args:
@@ -46,6 +51,8 @@ class TaskManager(object):
                 with information about the current run state of its
                 greenlets_.
 
+            max_task_timings (int): number of task runs to track for per-task statistics.
+
             logger (:obj:`logging.Logger`): logging instance from the
                 standard library. If one isn't provided a new one will be
                 made for this instance.
@@ -53,6 +60,7 @@ class TaskManager(object):
         .. _greenlets: http://www.gevent.org/gevent.html#greenlet-objects
         """
         # yapf: disable
+        Timing.MAX_RUN_TIMES = max(4, max_task_timings)
         if pool_size < 2:
             pool_size = 2
         if pool_cls and callable(pool_cls) and pool_size:
@@ -283,7 +291,12 @@ class TaskManager(object):
         for task in self.task_names:
             yield self.remove_task(task, force)
 
-    def forever(self, *exceptions, stop_after_exc=True, stop_on_zero=True, polling=None):
+    def forever(self,
+                *exceptions,
+                stop_after_exc=True,
+                stop_on_zero=True,
+                polling=None,
+                callback=None):
         """Blocks in an infinite loop after starting all registered tasks.
 
         The only way to break out is if one of the included ``exceptions``
@@ -298,6 +311,9 @@ class TaskManager(object):
             stop_on_zero (bool): stop the loop if no tasks are running.
             polling (float): overwrites :attr:`.FOREVER_POLL_SECS` if value
                 is not ``None``.
+            callback (Callable): a function, with no parameters, that is called at the end of
+                the forever loop if all tasks were unscheduled/stopped successfully without
+                raising any Exceptions in ``*exceptions``.
             *exceptions (Exception): variable number of Exception classes
                 to raise if an error occurs in a Task. This will break the
                 Forever loop and effectively stop our TaskPool.
@@ -308,7 +324,7 @@ class TaskManager(object):
                     break the loop.
 
         Returns:
-            bool: ``True`` if everything stopped gracefully, otherwise ``False``.
+            Any: the return value of ``callback`` if it's defined, else ``None``.
         """
         if not exceptions:
             exceptions = (ForeverRuntimeError,)
@@ -316,14 +332,13 @@ class TaskManager(object):
             polling = max(0.005, polling)
         else:
             polling = self.FOREVER_POLL_SECS
-        sheduled_attr = attrgetter('scheduled')
+        scheduled_attr = attrgetter('scheduled')
         self.start_all()
         try:
             while True:
                 if stop_on_zero:
-                    if self.pool.running == 0 and len(self._tasks) == 0:
-                        raise ForeverRuntimeError("no tasks left to run in pool")
-                    if not any(map(sheduled_attr, self)):
+                    none_scheduled = not any(map(scheduled_attr, self))
+                    if self.pool.running == 0 and none_scheduled:
                         self.logger.debug('stop_on_zero=True, no tasks scheduled')
                         break
                 for task in self:
@@ -340,5 +355,6 @@ class TaskManager(object):
         except exceptions as e:
             self.logger.exception(e, exc_info=True)
             raise e
-        else:
-            self._pool.join()
+        self._pool.join()
+        if callback and callable(callback):
+            return callback()
