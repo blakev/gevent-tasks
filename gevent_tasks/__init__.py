@@ -18,5 +18,5 @@ logger.addHandler(logging.NullHandler())
 cron = CronTab
 
 __author__ = 'Blake VandeMerwe'
-__version__ = '0.3.0'
+__version__ = '0.3.1'
 __all__ = ["Task", "TaskManager", "cron"]
